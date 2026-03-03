@@ -1004,7 +1004,7 @@ let noiseRunning=false;
 let nBuf,nBCtx,nImgD,nPix,nW2,nH2;
 let nStareTime=0,nLastMx=0,nLastMy=0,nElapsed=0,nTextOp=0,nFrame=0;
 let nPhantoms=[];
-const NSC=6;
+const NSC=isMobile?3:6;
 
 function nSpawn(){
   var types=['circle','line','triad','cluster','arc'];
@@ -1375,7 +1375,7 @@ modes.dimensions={
 // Wave interference. Everything is frequency.
 let freqRunning=false,freqElapsed=0;
 let fqBuf,fqBCtx,fqImgD,fqPix,fqW,fqH,fqSources=[];
-const FQ_SC=6;
+const FQ_SC=isMobile?3:6;
 
 modes.frequency={
   enter:function(){
