@@ -1,0 +1,1554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>psychosis.tw</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400&family=Noto+Sans+TC:wght@100;300;700;900&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#030305;--text:#b0b0b0;--mid:#666670;--dim:#3a3a44;--faint:#1a1a24;--ghost:#0e0e16;
+  --red:#aa1a1a;--mono:'IBM Plex Mono',monospace;--zh:'Noto Sans TC',sans-serif;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--mono);cursor:none;user-select:none}
+
+#cur{position:fixed;pointer-events:none;z-index:99999;mix-blend-mode:difference}
+#cur-r{width:24px;height:24px;border:1px solid rgba(180,180,180,0.25);border-radius:50%;transform:translate(-50%,-50%);transition:all 0.25s}
+#cur-d{position:absolute;top:50%;left:50%;width:3px;height:3px;background:rgba(255,255,255,0.7);border-radius:50%;transform:translate(-50%,-50%)}
+body.h #cur-r{width:50px;height:50px;border-color:var(--red)}
+
+.grain{position:fixed;inset:0;z-index:99998;pointer-events:none;opacity:0.035;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode:overlay}
+
+#corrupt-scan{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:99996;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(170,26,26,0.015) 2px,rgba(170,26,26,0.015) 4px);transition:opacity 3s}
+#corrupt-vignette{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:99995;
+  background:radial-gradient(ellipse at center,transparent 40%,rgba(170,26,26,0.04) 70%,rgba(3,3,5,0.3) 100%);transition:opacity 3s}
+
+/* glitch handled in JS */
+#glyph{position:relative;will-change:transform,opacity}
+
+#phase0{position:fixed;inset:0;z-index:9000;background:var(--bg);display:flex;align-items:center;justify-content:center}
+#phase0-text{font-size:0.85rem;color:var(--dim);letter-spacing:0.3em;opacity:0;animation:fadeWord 3.5s ease forwards}
+@keyframes fadeWord{0%{opacity:0}25%{opacity:1}80%{opacity:1}100%{opacity:0}}
+
+#phase1{position:fixed;inset:0;z-index:8000;background:var(--bg);display:flex;align-items:flex-end;padding:3rem;opacity:0}
+#boot-log{font-size:0.8rem;color:var(--dim);line-height:2.2;letter-spacing:0.1em}
+#boot-log .ln{opacity:0;transform:translateX(-4px);transition:opacity 0.4s,transform 0.4s}
+#boot-log .ln.on{opacity:1;transform:translateX(0)}
+#boot-log .ln.w{color:var(--red);font-size:0.9rem}
+#boot-log .ln.b{color:var(--text)}
+
+#void{position:fixed;inset:0;opacity:0;transition:opacity 3s ease}
+#void.on{opacity:1}
+canvas#field{position:fixed;inset:0;z-index:1}
+
+/* signal mode: full-screen canvas that takes over the void */
+canvas#mode-canvas{position:fixed;inset:0;z-index:7;opacity:0;transition:opacity 1.5s ease;pointer-events:none}
+canvas#mode-canvas.on{opacity:1}
+
+/* mode label - what mode you're in */
+#mode-label{position:fixed;top:2rem;left:50%;transform:translateX(-50%);z-index:8;
+  font-size:0.55rem;letter-spacing:0.4em;text-transform:uppercase;color:var(--faint);
+  opacity:0;transition:opacity 1s ease;pointer-events:none}
+#mode-label.on{opacity:1}
+
+/* signal mode frequency indicator */
+#signal-freq{position:fixed;bottom:2rem;right:2rem;z-index:8;
+  font-size:0.55rem;letter-spacing:0.15em;color:var(--faint);
+  opacity:0;transition:opacity 1s ease;pointer-events:none}
+#signal-freq.on{opacity:1}
+
+#center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;z-index:3;pointer-events:none;transition:opacity 2s ease}
+#glyph{
+  font-family:var(--zh);font-weight:100;
+  font-size:clamp(5rem,14vw,12rem);
+  color:transparent;-webkit-text-stroke:1.5px var(--faint);
+  letter-spacing:0.15em;line-height:1;
+  opacity:0;transition:opacity 5s ease,-webkit-text-stroke-color 6s ease;
+  --ci:1;
+}
+#glyph.on{opacity:1;-webkit-text-stroke-color:var(--dim)}
+#center.dimmed{opacity:0.08}
+#center.dimmed #mantra{opacity:0!important}
+
+#mantra{
+  font-family:var(--zh);font-weight:300;font-size:1rem;
+  letter-spacing:0.6em;color:var(--dim);margin-top:2.5rem;
+  opacity:0;transition:opacity 4s ease 3s;
+}
+#mantra.on{opacity:0.7}
+
+/* transmission text - appears center screen during signal mode */
+#transmission{
+  position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  z-index:8;pointer-events:none;text-align:center;
+  max-width:80vw;
+  font-size:clamp(0.9rem,2vw,1.3rem);line-height:2;
+  letter-spacing:0.15em;color:var(--dim);
+  opacity:0;transition:opacity 2s ease;
+}
+#transmission.on{opacity:1}
+#transmission .zh{font-family:var(--zh);font-weight:300}
+
+#whisper{
+  position:fixed;z-index:4;pointer-events:none;
+  font-family:var(--zh);font-weight:300;font-size:1rem;
+  letter-spacing:0.4em;color:var(--dim);
+  opacity:0;transition:opacity 2s ease;
+  transform:translate(-50%,-50%);
+}
+#whisper.vis{opacity:0.6}
+
+.frag{
+  position:absolute;z-index:5;cursor:none;
+  font-size:0.75rem;letter-spacing:0.25em;color:var(--dim);
+  transition:color 0.8s,text-shadow 0.8s,opacity 1.5s;
+  text-transform:uppercase;
+}
+.frag::before{
+  content:'';display:inline-block;width:5px;height:5px;
+  border-radius:50%;background:var(--faint);margin-right:0.6em;
+  vertical-align:middle;transition:background 0.8s,box-shadow 0.8s;
+}
+.frag:hover{color:var(--text);text-shadow:0 0 40px rgba(170,26,26,0.2)}
+.frag:hover::before{background:var(--red);box-shadow:0 0 12px rgba(170,26,26,0.5)}
+.frag.touched{color:var(--red)}
+.frag.touched::before{background:var(--red);box-shadow:0 0 8px rgba(170,26,26,0.3)}
+.frag.hidden{opacity:0;pointer-events:none}
+
+.corner{position:fixed;font-size:0.65rem;letter-spacing:0.15em;color:var(--faint);z-index:6;pointer-events:none;opacity:0;transition:opacity 5s ease 5s}
+.corner.on{opacity:1}
+#c-tl{top:2rem;left:2rem}
+#c-br{bottom:2rem;right:2rem;text-align:right}
+#visit-count{position:fixed;bottom:2rem;left:2rem;font-size:0.5rem;letter-spacing:0.2em;color:var(--faint);z-index:6;pointer-events:none;opacity:0;transition:opacity 2s}
+#visit-count.on{opacity:1}
+
+@media(max-width:768px){
+  #glyph{font-size:clamp(3rem,16vw,6rem);-webkit-text-stroke-width:1px}
+  .frag{font-size:0.7rem}
+}
+
+.bilingual{position:relative}
+.bilingual .bl-en,.bilingual .bl-zh{will-change:opacity}
+.bilingual .bl-en{position:absolute;top:0;left:0}
+#glyph .bl-en,#glyph .bl-zh{position:relative}
+#glyph .bl-en{position:absolute;top:0;left:0;right:0;letter-spacing:0.4em;font-weight:100;font-family:var(--zh);font-size:0.55em;top:50%;transform:translateY(-50%)}
+#mantra .bl-en{position:absolute;top:0;left:0;right:0;font-family:var(--mono);font-weight:300;font-size:0.75rem;letter-spacing:0.4em}
+.frag .bl-en{position:absolute;top:0;left:0;white-space:nowrap;padding-left:calc(5px + 0.6em)}
+.frag .bl-zh{font-family:var(--zh);font-weight:300;letter-spacing:0.25em}
+.corner .bl-en{position:absolute;top:0;left:0;white-space:nowrap}
+.corner .bl-zh{font-family:var(--zh);font-weight:300}
+</style>
+</head>
+<body>
+<div class="grain"></div>
+<div id="cur"><div id="cur-r"></div><div id="cur-d"></div></div>
+<div id="corrupt-scan"></div>
+<div id="corrupt-vignette"></div>
+
+<div id="phase0"><div id="phase0-text" class="bilingual" data-en="you found it" data-zh="你找到了">you found it</div></div>
+
+<div id="phase1">
+<div id="boot-log">
+<div class="ln bilingual" data-en="psychosis.tw" data-zh="psychosis.tw">psychosis.tw</div>
+<div class="ln bilingual" data-en="loading perception framework ..." data-zh="載入感知架構 ...">loading perception framework ...</div>
+<div class="ln bilingual" data-en="mapping dimensional boundaries" data-zh="映射維度邊界">mapping dimensional boundaries</div>
+<div class="ln bilingual" data-en="frequency scan .......... ok" data-zh="頻率掃描 .......... ok">frequency scan .......... ok</div>
+<div class="ln bilingual" data-en="dissolving consensus reality" data-zh="溶解共識現實">dissolving consensus reality</div>
+<div class="ln b bilingual" data-en="connection established" data-zh="連線已建立">connection established</div>
+<div class="ln">&nbsp;</div>
+<div class="ln w bilingual" data-en="this world has more than three dimensions" data-zh="這世界不只有三個維度">這世界不只有三個維度</div>
+<div class="ln">&nbsp;</div>
+<div class="ln bilingual" data-en="entering ..." data-zh="進入 ...">entering ...</div>
+</div>
+</div>
+
+<div id="void">
+<canvas id="field"></canvas>
+<canvas id="mode-canvas"></canvas>
+
+<div id="center">
+  <div id="glyph" class="bilingual" data-zh="神經錯亂" data-en="PSYCHOSIS">神經錯亂</div>
+  <div id="mantra" class="bilingual" data-zh="這世界不只有三個維度" data-en="this world has more than three dimensions">這世界不只有三個維度</div>
+</div>
+
+<div id="transmission"></div>
+<div id="mode-label"></div>
+<div id="signal-freq"></div>
+<div id="whisper"></div>
+
+<div class="frag bilingual" data-p="signal" data-en="signal" data-zh="信號" style="top:20%;left:12%">signal</div>
+<div class="frag bilingual" data-p="frequency" data-en="frequency" data-zh="頻率" style="top:26%;left:76%">frequency</div>
+<div class="frag bilingual" data-p="compression" data-en="compression" data-zh="壓縮" style="top:70%;left:7%">compression</div>
+<div class="frag bilingual" data-p="observer" data-en="observer" data-zh="觀察者" style="top:76%;left:82%">observer</div>
+<div class="frag bilingual" data-p="noise" data-en="noise" data-zh="雜訊" style="top:13%;left:48%">noise</div>
+<div class="frag bilingual" data-p="boundary" data-en="boundary" data-zh="邊界" style="top:88%;left:42%">boundary</div>
+<div class="frag bilingual" data-p="habit" data-en="habit" data-zh="習慣" style="top:53%;left:16%">habit</div>
+<div class="frag bilingual" data-p="dimensions" data-en="dimensions" data-zh="維度" style="top:40%;left:72%">dimensions</div>
+
+<div class="corner bilingual" id="c-tl" data-en="22.6273°N 120.3014°E" data-zh="高雄市">22.6273°N 120.3014°E</div>
+<div class="corner" id="c-br">psychosis.tw</div>
+<div id="visit-count"></div>
+</div>
+
+<script>
+
+// ====== STATE ======
+const SK='psychosis_v';
+function getV(){try{return JSON.parse(localStorage.getItem(SK))||[]}catch(e){return[]}}
+function markV(k){const v=getV();if(!v.includes(k)){v.push(k);localStorage.setItem(SK,JSON.stringify(v))}applyCorrupt(v.length);return v.length}
+
+let corruptLevel=0;
+function applyCorrupt(lv){
+  corruptLevel=lv;
+  const cl=Math.min(lv,8);
+  document.body.setAttribute('data-c',cl);
+  const g=document.getElementById('glyph');
+  if(g)g.style.setProperty('--ci',cl);
+
+  // scanlines start immediately, get heavier
+  document.getElementById('corrupt-scan').style.opacity=Math.min(0.15+lv*0.12,1);
+
+  // vignette from level 2
+  if(lv>=2)document.getElementById('corrupt-vignette').style.opacity=Math.min((lv-1)*0.18,0.9);
+
+  // glyph color shifts: dim -> mid -> red
+  if(g&&g.classList.contains('on')){
+    if(lv>=6)g.style.setProperty('-webkit-text-stroke-color','#aa1a1a');
+    else if(lv>=3)g.style.setProperty('-webkit-text-stroke-color','#666670');
+  }
+
+  // grain intensifies noticeably
+  document.querySelector('.grain').style.opacity=0.035+lv*0.01;
+
+  // background color shifts subtly toward red-black
+  if(lv>=4)document.body.style.background='#05030'+Math.min(lv,8);
+
+  // mantra changes
+  const m=document.getElementById('mantra');
+  if(m&&lv>=5)m.style.color='#666670';
+  if(m&&lv>=7)m.style.color='#aa1a1a';
+
+  // counter
+  const vc=document.getElementById('visit-count');
+  if(vc&&lv>0){vc.textContent=lv+'/8';vc.classList.add('on');vc.setAttribute('data-en',lv+'/8');vc.setAttribute('data-zh',lv+'/8');vc.classList.add('bilingual')}
+
+  // mark touched
+  document.querySelectorAll('.frag').forEach(f=>{if(getV().includes(f.dataset.p))f.classList.add('touched')});
+
+  // === FULL BREACH STATE ===
+  if(lv>=8)fullBreach();
+}
+
+let breached=false;
+function fullBreach(){
+  if(breached)return;
+  breached=true;
+  // the site permanently transforms
+  const g=document.getElementById('glyph');
+  const m=document.getElementById('mantra');
+  const center=document.getElementById('center');
+
+  // glyph becomes solid, no longer an outline
+  if(g){
+    g.style.color='#aa1a1a';
+    g.style.setProperty('-webkit-text-stroke','none');
+    g.style.textShadow='0 0 80px rgba(170,26,26,0.2), 0 0 200px rgba(170,26,26,0.08)';
+    g.style.animation='none';g.style.transform='';g.style.clipPath='';g.style.setProperty('--gba','0');
+    g.style.opacity='1';
+    g.style.filter='none';
+  }
+
+  // mantra becomes fully visible
+  if(m){
+    m.style.opacity='1';
+    m.style.color='#b0b0b0';
+    m.style.letterSpacing='1em';
+    m.style.transition='none';
+  }
+
+  // all fragments turn red and glow
+  document.querySelectorAll('.frag').forEach(f=>{
+    f.style.color='#aa1a1a';
+    f.style.textShadow='0 0 20px rgba(170,26,26,0.3)';
+  });
+
+  // vignette fully open
+  document.getElementById('corrupt-vignette').style.opacity='1';
+  document.getElementById('corrupt-vignette').style.background=
+    'radial-gradient(ellipse at center,transparent 30%,rgba(170,26,26,0.06) 60%,rgba(3,3,5,0.5) 100%)';
+
+  // grain maxed
+  document.querySelector('.grain').style.opacity='0.1';
+
+  // after a beat, show the final state
+  setTimeout(()=>{
+    const vc=document.getElementById('visit-count');
+    if(vc){vc.textContent='breach complete';vc.style.color='#aa1a1a'}
+
+    // new text fades in below mantra
+    const end=document.createElement('div');
+    end.style.cssText='font-family:var(--zh);font-weight:100;font-size:0.75rem;letter-spacing:0.5em;color:#3a3a44;margin-top:2rem;opacity:0;transition:opacity 5s ease';
+    end.textContent='\u4f60\u770b\u5230\u4e86';  // you saw it
+    center.appendChild(end);
+    setTimeout(()=>end.style.opacity='0.6',100);
+  },3000);
+}
+
+// ====== CURSOR ======
+const cur=document.getElementById('cur');
+let mx=innerWidth/2,my=innerHeight/2,cux=0,cuy=0;
+const isMobile='ontouchstart' in window||navigator.maxTouchPoints>0;
+
+if(!isMobile){
+  document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY});
+  (function tick(){cux+=(mx-cux)*0.12;cuy+=(my-cuy)*0.12;cur.style.left=cux+'px';cur.style.top=cuy+'px';requestAnimationFrame(tick)})();
+  document.querySelectorAll('.frag').forEach(el=>{
+    el.addEventListener('mouseenter',()=>document.body.classList.add('h'));
+    el.addEventListener('mouseleave',()=>document.body.classList.remove('h'));
+  });
+}else{
+  cur.style.display='none';
+  // Gyroscope feeds mx/my — phone tilt becomes the lens
+  let gyroReady=false;
+  let gyroBeta=45,gyroGamma=0; // raw values
+  let gyroMx=innerWidth/2,gyroMy=innerHeight/2; // smoothed
+
+  function handleOrientation(e){
+    if(e.beta!==null)gyroBeta=e.beta;
+    if(e.gamma!==null)gyroGamma=e.gamma;
+  }
+
+  function gyroTick(){
+    if(gyroReady){
+      // Map gamma (-30..+30) → mx (0..W), beta (20..70) → my (0..H)
+      var targetX=((gyroGamma+30)/60)*innerWidth;
+      var targetY=((gyroBeta-20)/50)*innerHeight;
+      targetX=Math.max(0,Math.min(innerWidth,targetX));
+      targetY=Math.max(0,Math.min(innerHeight,targetY));
+      // Smooth to prevent jitter
+      gyroMx+=(targetX-gyroMx)*0.08;
+      gyroMy+=(targetY-gyroMy)*0.08;
+      mx=gyroMx;my=gyroMy;
+    }
+    requestAnimationFrame(gyroTick);
+  }
+  gyroTick();
+
+  function startGyro(){
+    window.addEventListener('deviceorientation',handleOrientation);
+    gyroReady=true;
+    var perm=document.getElementById('gyro-perm');
+    if(perm)perm.style.display='none';
+  }
+
+  // iOS requires permission on user gesture
+  if(typeof DeviceOrientationEvent.requestPermission==='function'){
+    // Show permission button after boot sequence
+    var permBtn=document.createElement('div');
+    permBtn.id='gyro-perm';
+    permBtn.style.cssText='position:fixed;bottom:3rem;left:50%;transform:translateX(-50%);z-index:10000;padding:0.8rem 2rem;border:1px solid rgba(170,26,26,0.4);color:var(--red);font:300 0.75rem var(--mono);letter-spacing:0.2em;cursor:pointer;background:rgba(3,3,5,0.9);text-align:center';
+    permBtn.textContent='TILT TO SEE — TAP TO ENABLE';
+    permBtn.addEventListener('click',function(){
+      DeviceOrientationEvent.requestPermission().then(function(r){
+        if(r==='granted')startGyro();
+        else permBtn.textContent='PERMISSION DENIED';
+      }).catch(function(){permBtn.textContent='GYRO UNAVAILABLE'});
+    });
+    document.body.appendChild(permBtn);
+  }else{
+    // Android or other — just start
+    startGyro();
+  }
+
+  // Touch: tap fragments to enter/exit modes
+  document.addEventListener('touchstart',function(e){
+    var frag=e.target.closest('.frag');
+    if(frag){
+      e.preventDefault();
+      frag.click();
+      return;
+    }
+    // Tap void to exit mode
+    if(activeMode&&!e.target.closest('.frag')){
+      exitMode();
+    }
+  },{passive:false});
+
+  // Whisper on sustained stillness instead of mouse proximity
+  (function mobileWhisper(){
+    const el=document.getElementById('whisper');let last=0;
+    setInterval(()=>{
+      if(activeMode||Date.now()-last<8000)return;
+      if(Math.random()>0.7){
+        last=Date.now();
+        el.textContent=whispers[Math.floor(Math.random()*whispers.length)];
+        el.style.left=(mx+Math.random()*120-60)+'px';
+        el.style.top=(my+Math.random()*100-50)+'px';
+        el.classList.add('vis');
+        setTimeout(()=>el.classList.remove('vis'),3500);
+      }
+    },5000);
+  })();
+}
+
+// ====== WHISPERS ======
+const whispers=[
+  '\u4f60\u80fd\u611f\u89ba\u5230\u55ce','look closer','the edges are soft',
+  '\u4e09\u500b\u7dad\u5ea6\u4e0d\u5920','perception is a habit',
+  'the map is not the territory','still here',
+  '\u610f\u8b58\u6539\u8b8a\u4e00\u5207','what shape is a thought',
+  '\u9084\u6709\u66f4\u591a','where does a feeling exist',
+  'you already know this'
+];
+
+// ====== ACTIVE MODE ======
+let activeMode=null;
+let modeCanvas,modeCtx;
+
+// ====== PHASE SEQUENCING ======
+setTimeout(()=>{
+  document.getElementById('phase0').style.transition='opacity 1.5s';
+  document.getElementById('phase0').style.opacity='0';
+  setTimeout(()=>{
+    document.getElementById('phase0').style.display='none';
+    document.getElementById('phase1').style.opacity='1';
+    boot();
+  },1500);
+},3800);
+
+function boot(){
+  const lines=document.querySelectorAll('#boot-log .ln');
+  lines.forEach((ln,i)=>setTimeout(()=>ln.classList.add('on'),i*380));
+  setTimeout(()=>{
+    document.getElementById('phase1').style.transition='opacity 2s';
+    document.getElementById('phase1').style.opacity='0';
+    setTimeout(()=>{document.getElementById('phase1').style.display='none';enterVoid()},2000);
+  },lines.length*380+1800);
+}
+
+function enterVoid(){
+  document.getElementById('void').classList.add('on');
+  setTimeout(()=>document.getElementById('glyph').classList.add('on'),800);
+  setTimeout(()=>document.getElementById('mantra').classList.add('on'),3000);
+  setTimeout(()=>document.querySelectorAll('.corner').forEach(c=>c.classList.add('on')),2000);
+  const v=getV();if(v.length>0)setTimeout(()=>applyCorrupt(v.length),1500);
+  modeCanvas=document.getElementById('mode-canvas');
+  modeCtx=modeCanvas.getContext('2d');
+  initBilingual();initField();initFrags();initWhisper();scheduleFlicker();
+}
+
+// ====== PARTICLE FIELD ======
+function initField(){
+  const c=document.getElementById('field'),ctx=c.getContext('2d');
+  let w,h,pts=[];
+  function resize(){w=c.width=innerWidth;h=c.height=innerHeight;
+    modeCanvas.width=innerWidth;modeCanvas.height=innerHeight}
+  resize();addEventListener('resize',resize);
+  for(let i=0;i<55;i++)pts.push({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-0.5)*0.18,vy:(Math.random()-0.5)*0.18,r:Math.random()*1.5+0.4,o:Math.random()*0.35+0.08});
+  (function draw(){
+    if(!activeMode){
+    ctx.clearRect(0,0,w,h);
+    const cl=corruptLevel;const cd=160+cl*15;const cd2=cd*cd;
+    const cr=50+cl*12,cg2=50-cl*2,cb=65-cl*4;
+    const buckets=[[],[],[],[]];
+    for(let i=0;i<pts.length;i++){for(let j=i+1;j<pts.length;j++){
+      const dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y,d2=dx*dx+dy*dy;
+      if(d2<cd2){const f=1-Math.sqrt(d2)/cd;const bi=Math.min(3,~~(f*4));
+        buckets[bi].push(pts[i].x,pts[i].y,pts[j].x,pts[j].y)}
+    }}
+    for(let bi=0;bi<4;bi++){
+      const b=buckets[bi];if(!b.length)continue;
+      ctx.beginPath();
+      for(let k=0;k<b.length;k+=4){ctx.moveTo(b[k],b[k+1]);ctx.lineTo(b[k+2],b[k+3])}
+      ctx.strokeStyle='rgba('+cr+','+cg2+','+cb+','+(0.025*(bi+1))+')';
+      ctx.lineWidth=0.5+cl*0.06;ctx.stroke();
+    }
+    const pr=50+cl*10,pg=50-cl*2,pb=65-cl*3;
+    ctx.beginPath();
+    pts.forEach(p=>{
+      const dx=mx-p.x,dy=my-p.y,d2=dx*dx+dy*dy;
+      const thr=220+cl*20;
+      if(d2<thr*thr){const f=0.00004+cl*0.000006;p.vx+=dx*f;p.vy+=dy*f}
+      const s=1+cl*0.04;p.x+=p.vx*s;p.y+=p.vy*s;
+      if(p.x<0)p.x=w;if(p.x>w)p.x=0;if(p.y<0)p.y=h;if(p.y>h)p.y=0;
+      p.vx*=0.999;p.vy*=0.999;
+      ctx.moveTo(p.x+p.r,p.y);ctx.arc(p.x,p.y,p.r+cl*0.08,0,Math.PI*2);
+    });
+    ctx.fillStyle='rgba('+pr+','+pg+','+pb+',0.2)';ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  })();
+}
+
+// ====== FRAGMENTS ======
+function initFrags(){
+  document.querySelectorAll('.frag').forEach(f=>{
+    const dx=Math.random()*16-8,dy=Math.random()*16-8,dur=10+Math.random()*8;
+    f.style.animation='ff '+dur+'s ease-in-out infinite';
+    f.style.setProperty('--fx',dx+'px');f.style.setProperty('--fy',dy+'px');
+    f.addEventListener('click',()=>{
+      if(activeMode===f.dataset.p){exitMode();return}
+      markV(f.dataset.p);f.classList.add('touched');
+      enterMode(f.dataset.p);
+    });
+  });
+  const s=document.createElement('style');
+  s.textContent='@keyframes ff{0%,100%{transform:translate(0,0)}50%{transform:translate(var(--fx),var(--fy))}}';
+  document.head.appendChild(s);
+}
+
+// ====== WHISPER ======
+function initWhisper(){
+  if(isMobile)return; // mobile whispers handled in gyro section
+  const el=document.getElementById('whisper');let last=0;
+  document.addEventListener('mousemove',e=>{
+    if(activeMode||Date.now()-last<6000)return;
+    const d=Math.sqrt((e.clientX-innerWidth/2)**2+(e.clientY-innerHeight/2)**2);
+    if(d<300&&Math.random()>0.82){
+      last=Date.now();
+      el.textContent=whispers[Math.floor(Math.random()*whispers.length)];
+      el.style.left=(e.clientX+Math.random()*120-60)+'px';
+      el.style.top=(e.clientY+Math.random()*100-50)+'px';
+      el.classList.add('vis');
+      setTimeout(()=>el.classList.remove('vis'),3500);
+    }
+  });
+}
+
+// ====== MODE SYSTEM ======
+function enterMode(mode){
+  activeMode=mode;
+  // dim the glyph and hide other frags
+  document.getElementById('center').classList.add('dimmed');
+  document.querySelectorAll('.frag').forEach(f=>{
+    if(f.dataset.p!==mode)f.classList.add('hidden');
+  });
+  modeCanvas.classList.add('on');
+  const ml=document.getElementById('mode-label');
+  ml.textContent=mode;ml.classList.add('on');
+  // start mode
+  if(modes[mode])modes[mode].enter();
+}
+
+function exitMode(){
+  if(activeMode&&modes[activeMode]&&modes[activeMode].exit)modes[activeMode].exit();
+
+  // CRACK FLASH - brief white flash when reality reassembles
+  const flash=document.createElement('div');
+  flash.style.cssText='position:fixed;inset:0;z-index:99990;background:rgba(170,26,26,0.06);pointer-events:none;transition:opacity 1.5s ease';
+  document.body.appendChild(flash);
+  // brief screen shake
+  document.body.style.transform='translate('+(Math.random()-0.5)*4+'px,'+(Math.random()-0.5)*3+'px)';
+  setTimeout(()=>{document.body.style.transform='';flash.style.opacity='0';setTimeout(()=>flash.remove(),1500)},80);
+
+  activeMode=null;
+  document.getElementById('center').classList.remove('dimmed');
+  document.querySelectorAll('.frag').forEach(f=>f.classList.remove('hidden'));
+  modeCanvas.classList.remove('on');
+  document.getElementById('mode-label').classList.remove('on');
+  document.getElementById('signal-freq').classList.remove('on');
+  const tx=document.getElementById('transmission');
+  tx.classList.remove('on');tx.textContent='';
+}
+
+// click void background to exit mode
+document.addEventListener('click',e=>{
+  if(activeMode&&!e.target.closest('.frag'))exitMode();
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')exitMode()});
+
+// ====== SIGNAL MODE ======
+const signalMessages=[
+  ['you were always going to find this','\u4f60\u4e00\u76f4\u90fd\u6703\u627e\u5230\u9019\u500b'],
+  ['the static is everything at once','\u975c\u96fb\u662f\u4e00\u5207\u540c\u6642\u767c\u751f'],
+  ['consciousness is the frequency','\u610f\u8b58\u662f\u983b\u7387'],
+  ['you built a receiver out of neurons and called it a mind','\u4f60\u7528\u795e\u7d93\u5143\u9020\u4e86\u4e00\u500b\u63a5\u6536\u5668 \u7136\u5f8c\u53eb\u5b83\u5fc3\u667a'],
+  ['time is how it keeps from happening all at once','\u6642\u9593\u662f\u9632\u6b62\u4e00\u5207\u540c\u6642\u767c\u751f\u7684\u65b9\u6cd5'],
+  ['what arrives is not what was sent','\u5230\u9054\u7684\u4e0d\u662f\u767c\u9001\u7684'],
+  ['the path changes the message','\u8def\u5f91\u6539\u8b8a\u4e86\u8a0a\u606f'],
+  ['every instrument has a blind spot','\u6bcf\u500b\u5100\u5668\u90fd\u6709\u76f2\u9ede'],
+  ['your senses are a lossy codec','\u4f60\u7684\u611f\u5b98\u662f\u6709\u640d\u7de8\u89e3\u78bc\u5668'],
+  ['the signal was always here','\u4fe1\u865f\u4e00\u76f4\u90fd\u5728'],
+  ['you are generating the world from fragments','\u4f60\u6b63\u5728\u7528\u788e\u7247\u751f\u6210\u4e16\u754c'],
+  ['there are more channels than receivers','\u983b\u9053\u6bd4\u63a5\u6536\u5668\u591a'],
+  ['perception is translation','\u611f\u77e5\u662f\u7ffb\u8b6f'],
+  ['what you cannot detect still passes through you','\u4f60\u7121\u6cd5\u5075\u6e2c\u7684\u4ecd\u7136\u7a7f\u904e\u4f60'],
+  ['radio waves are moving through your skull right now','\u7121\u7dda\u96fb\u6ce2\u6b63\u5728\u7a7f\u904e\u4f60\u7684\u982d\u9ab1'],
+  ['gravity is bending the light reaching your eyes right now','\u91cd\u529b\u6b63\u5728\u5f4e\u66f2\u5230\u9054\u4f60\u773c\u775b\u7684\u5149'],
+  ['eleven dimensions is the minimum the math requires','\u5341\u4e00\u500b\u7dad\u5ea6\u662f\u6578\u5b78\u6240\u9700\u7684\u6700\u5c0f\u503c'],
+  ['a feeling has no coordinates','\u611f\u89ba\u6c92\u6709\u5ea7\u6a19'],
+  ['where does music exist','\u97f3\u6a02\u5b58\u5728\u65bc\u54ea\u88e1'],
+];
+
+let signalRunning=false;
+let signalStrength=0;
+let lastMouseMove=Date.now();
+
+modes={};
+modes.signal={
+  enter:function(){
+    signalRunning=true;
+    document.getElementById('signal-freq').classList.add('on');
+    let currentMsg='',msgOp=0,msgTgt=0,nextMsg=Date.now()+2000,lastIdx=-1;
+
+    (function draw(){
+      if(!signalRunning)return;
+      const W=innerWidth,H=innerHeight,t=Date.now()*0.001,now=Date.now();
+      modeCtx.clearRect(0,0,W,H);
+
+      // sweet spot drifts
+      const sweet=Math.sin(t*0.08)*0.3+0.5;
+      const dist=Math.abs(mx/W-sweet);
+      let tgt=Math.max(0,1-dist*4);
+      // stillness helps
+      if(now-lastMouseMove>2000)tgt=Math.min(tgt+0.15,1);
+      signalStrength+=(tgt-signalStrength)*0.03;
+
+      // noise scanlines
+      for(let y=0;y<H;y+=2){
+        const flicker=Math.random();
+        const bandC=my;
+        const bandD=Math.abs(y-bandC);
+        const inBand=Math.max(0,1-bandD/(30+signalStrength*80));
+        const b=flicker*(6+inBand*10+signalStrength*4);
+        const r=b+(signalStrength>0.3?signalStrength*5:0);
+        modeCtx.fillStyle='rgba('+Math.floor(r)+','+Math.floor(b)+','+Math.floor(b+2)+',0.7)';
+        const jit=inBand>0.3?(Math.random()-0.5)*inBand*4:0;
+        modeCtx.fillRect(jit,y,W,1.5);
+      }
+
+      // rolling scan
+      const sY=((t*35)%(H+60))-30;
+      const gr=modeCtx.createLinearGradient(0,sY-15,0,sY+15);
+      gr.addColorStop(0,'rgba(170,26,26,0)');
+      gr.addColorStop(0.5,'rgba(170,26,26,'+(0.03+signalStrength*0.04)+')');
+      gr.addColorStop(1,'rgba(170,26,26,0)');
+      modeCtx.fillStyle=gr;modeCtx.fillRect(0,sY-15,W,30);
+
+      // thin crosshair
+      modeCtx.strokeStyle='rgba(170,26,26,'+(0.04+signalStrength*0.08)+')';
+      modeCtx.lineWidth=0.5;
+      modeCtx.beginPath();modeCtx.moveTo(0,my);modeCtx.lineTo(W,my);modeCtx.stroke();
+      modeCtx.beginPath();modeCtx.moveTo(mx,0);modeCtx.lineTo(mx,H);modeCtx.stroke();
+
+      // waveform at bottom
+      const wY=H*0.9;
+      modeCtx.beginPath();modeCtx.moveTo(0,wY);
+      for(let x=0;x<W;x+=2){
+        const nx=x/W;
+        let yy=Math.sin(nx*25+t*3)*3+Math.sin(nx*80+t*7)*signalStrength*8+(Math.random()-0.5)*(2+signalStrength*8);
+        const dd=Math.abs(nx-mx/W);
+        if(dd<0.12)yy*=1+(0.12-dd)*12*signalStrength;
+        modeCtx.lineTo(x,wY+yy);
+      }
+      modeCtx.strokeStyle='rgba(170,26,26,'+(0.1+signalStrength*0.25)+')';
+      modeCtx.lineWidth=0.8;modeCtx.stroke();
+
+      // messages
+      if(now>nextMsg&&signalStrength>0.15){
+        let idx;do{idx=Math.floor(Math.random()*signalMessages.length)}while(idx===lastIdx);
+        lastIdx=idx;
+        // pick language — biased toward current flicker state but sometimes crosses
+        const pair=signalMessages[idx];
+        currentMsg=Math.random()<0.6?pair[flickerState.lang==='zh'?1:0]:pair[Math.random()<0.5?0:1];
+        msgTgt=1;
+        nextMsg=now+4000+Math.random()*5000;
+        const dur=2500+signalStrength*2000;
+        // sometimes mid-message flicker to the other language
+        if(Math.random()<0.35){
+          const other=currentMsg===pair[0]?pair[1]:pair[0];
+          setTimeout(()=>{currentMsg=other},dur*0.4+Math.random()*dur*0.3);
+        }
+        setTimeout(()=>{msgTgt=0},dur);
+      }
+      msgOp+=(msgTgt-msgOp)*0.04;
+
+      const tx=document.getElementById('transmission');
+      if(currentMsg&&msgOp>0.02){
+        tx.textContent=currentMsg;
+        tx.style.opacity=msgOp*0.85;
+        tx.classList.add('on');
+      }else{
+        tx.style.opacity=0;
+      }
+
+      // freq label
+      document.getElementById('signal-freq').textContent=(87.5+mx/W*20).toFixed(1)+' MHz';
+
+      requestAnimationFrame(draw);
+    })();
+  },
+  exit:function(){
+    signalRunning=false;
+    modeCtx.clearRect(0,0,innerWidth,innerHeight);
+  }
+};
+
+// ====== OBSERVER MODE ======
+// Your attention stabilizes reality. Where you look, order holds.
+// Where you stop looking, things drift. Measurement is not passive.
+let obsRunning=false;
+const HCOLS=26,HROWS=15,H_RAD=280;
+const HBG=String.fromCharCode(9675,9633,9651,8226,183,43,9702,9643,8211).split("");
+const HDG=String.fromCharCode(31070,32147,37679,20098,32173,24230,32722,24931,24863,30693,22659,30028,38971,29575,20449,34399,35264,23519,22818,24433).split("");
+let hNodes=[],hElapsed=0,hTextOp=0;
+
+modes.observer={
+  enter:function(){
+    obsRunning=true;hElapsed=0;hTextOp=0;
+    hNodes=[];
+    const W=innerWidth,H=innerHeight,cw=W/HCOLS,ch=H/HROWS;
+    for(let r=0;r<HROWS;r++){for(let c=0;c<HCOLS;c++){
+      const cx=cw*c+cw/2,cy=ch*r+ch/2;
+      hNodes.push({bx:cx,by:cy,x:cx,y:cy,base:HBG[~~(Math.random()*HBG.length)],mutant:HDG[~~(Math.random()*HDG.length)],bSize:10+Math.random()*3,drift:0,residue:0,ds:0.00005+Math.random()*0.00008,ss:0.022+Math.random()*0.016,nOff:Math.random()*10000,fx:Math.random()*Math.PI*2,fs:0.08+Math.random()*0.1,fa:0.5+Math.random()*1});
+    }}
+
+    function hFS(px,py){
+      const d=Math.hypot(px-mx,py-my);
+      const f=Math.max(0,1-d/H_RAD);
+      return f*f;
+    }
+
+    function hDrawGlow(t){
+      const G=modeCtx;
+      G.save();
+      const g1=G.createRadialGradient(mx,my,8,mx,my,H_RAD);
+      g1.addColorStop(0,'rgba(210,215,240,0.09)');
+      g1.addColorStop(0.15,'rgba(180,185,220,0.05)');
+      g1.addColorStop(0.4,'rgba(120,125,170,0.02)');
+      g1.addColorStop(1,'rgba(30,30,50,0)');
+      G.beginPath();G.arc(mx,my,H_RAD,0,Math.PI*2);
+      G.fillStyle=g1;G.fill();
+      var g2=G.createRadialGradient(mx,my,3,mx,my,H_RAD*0.35);
+      g2.addColorStop(0,'rgba(240,240,255,0.06)');
+      g2.addColorStop(1,'rgba(100,100,140,0)');
+      G.beginPath();G.arc(mx,my,H_RAD*0.35,0,Math.PI*2);
+      G.fillStyle=g2;G.fill();
+      for(var i=0;i<20;i++){
+        var a=Math.sin(i*127.1+t*0.12)*Math.PI*2;
+        var d2=30+(Math.sin(i*311.7+t*0.08)+1)/2*H_RAD*0.6;
+        var px=mx+Math.cos(a)*d2+Math.sin(t*0.2+i)*3;
+        var py=my+Math.sin(a)*d2+Math.cos(t*0.15+i)*3;
+        var h3=(Math.sin(i*197.3+t*0.13)+1)/2;
+        G.beginPath();G.arc(px,py,0.3+h3*1.2,0,Math.PI*2);
+        G.fillStyle='rgba(200,205,235,'+(0.03+h3*0.06)+')';G.fill();
+      }
+      G.restore();
+    }
+
+    (function hDraw(){
+      if(!obsRunning)return;
+      var G=modeCtx,W=innerWidth,H=innerHeight,t=Date.now()*0.001;
+      hElapsed+=1/60;
+      G.clearRect(0,0,W,H);
+      hDrawGlow(t);
+      for(var i=0;i<hNodes.length;i++){
+        var n=hNodes[i],gs=hFS(n.bx,n.by);
+        if(gs<0.05){n.drift=Math.min(n.drift+n.ds*(1+hElapsed*0.0002),1)}
+        else{n.residue=Math.min(n.residue+n.drift*0.004,0.3);n.drift=Math.max(n.drift-n.ss*gs,n.residue)}
+        var dd=n.drift;
+        n.x=n.bx+Math.sin(t*n.fs+n.fx)*n.fa+Math.sin(t*0.3+n.nOff)*dd*40;
+        n.y=n.by+Math.cos(t*n.fs*0.7+n.fx+2)*n.fa+Math.cos(t*0.2+n.nOff+50)*dd*32;
+      }
+      for(var i=0;i<hNodes.length;i++){var ni=hNodes[i];
+        for(var j=i+1;j<hNodes.length;j++){var nj=hNodes[j];
+          var dx=ni.x-nj.x,dy=ni.y-nj.y,dist=Math.sqrt(dx*dx+dy*dy);
+          var maxD=80+Math.max(ni.drift,nj.drift)*40;
+          if(dist>maxD)continue;
+          var ad=(ni.drift+nj.drift)/2,fade=1-dist/maxD;
+          var mgs=hFS((ni.x+nj.x)/2,(ni.y+nj.y)/2);
+          var cr=80+mgs*30+ad*80,cg=85+mgs*30-ad*15,cb=105+mgs*30-ad*25;
+          var cop=fade*(0.04+mgs*0.1+ad*0.03);
+          G.beginPath();G.moveTo(ni.x,ni.y);G.lineTo(nj.x,nj.y);
+          G.strokeStyle='rgba('+~~cr+','+~~cg+','+~~cb+','+cop+')';
+          G.lineWidth=0.4+ad*0.5;G.stroke();
+        }
+      }
+      for(var i=0;i<hNodes.length;i++){
+        var n=hNodes[i],dd=n.drift,gs=hFS(n.x,n.y);
+        var size=n.bSize+dd*6*Math.sin(t*0.2+n.nOff);
+        var rot=dd*Math.sin(t*0.3+n.nOff)*60;
+        var r=Math.min(255,85+gs*70+dd*80);
+        var g=Math.min(255,90+gs*70-dd*25);
+        var b=Math.min(255,110+gs*70-dd*40);
+        var op=Math.min(1,0.22+gs*0.4+dd*0.12);
+        var glyph=dd>0.6?n.mutant:n.base;
+        var fs2=dd>0.6?Math.max(9,size+3):Math.max(7,size);
+        var fnt=dd>0.6?(~~fs2+'px "Noto Sans TC"'):(~~fs2+'px "IBM Plex Mono"');
+        G.save();G.translate(n.x,n.y);G.rotate(rot*Math.PI/180);
+        G.font=fnt;G.textAlign='center';G.textBaseline='middle';
+        G.fillStyle='rgba('+~~r+','+~~g+','+~~b+','+op+')';
+        G.fillText(glyph,0,0);G.restore();
+      }
+      if(hElapsed>3&&hTextOp<0.5)hTextOp+=0.003;
+      if(hTextOp>0){
+        G.save();G.textAlign='center';G.textBaseline='middle';
+        G.font='300 11px "IBM Plex Mono"';
+        G.fillStyle='rgba(140,140,160,'+hTextOp+')';
+        G.fillText('measurement is not passive',W/2,H-50);
+        G.restore();
+      }
+      requestAnimationFrame(hDraw);
+    })();
+  },
+  exit:function(){
+    obsRunning=false;
+    modeCtx.clearRect(0,0,innerWidth,innerHeight);
+    hNodes=[];
+  }
+};
+
+// ====== HABIT MODE ======
+// PKD light switch. Things rearrange when you aren't looking.
+// The familiar becomes wrong. You stopped looking a long time ago.
+const HBG2=String.fromCharCode(9675,9633,9651,9671,8226,183,43,9702,9643,8211,215,8728,9674,8857).split("");
+let habRunning=false;
+let habNodes=[],habSwapLog=0,habMsgOp=0,habMsgText='';
+
+modes.habit={
+  enter:function(){
+    habRunning=true;habSwapLog=0;habMsgOp=0;habMsgText='';
+    habNodes=[];
+    var W=innerWidth,H=innerHeight;
+    var cols=24,rows=14,cw=W/cols,ch=H/rows;
+    for(var r=0;r<rows;r++){for(var c=0;c<cols;c++){
+      var cx=cw*c+cw/2,cy=ch*r+ch/2;
+      habNodes.push({
+        bx:cx,by:cy,x:cx,y:cy,
+        glyph:HBG2[~~(Math.random()*HBG2.length)],
+        size:9+Math.random()*4,
+        nOff:Math.random()*10000,
+        fs:0.06+Math.random()*0.08,
+        fa:0.3+Math.random()*0.6,
+        fx:Math.random()*Math.PI*2,
+        swapped:false,swapTimer:0,
+        wasGlyph:'',ghostOp:0
+      });
+    }}
+
+    var swapInterval=120;
+    var nextSwapFrame=180;
+    var totalSwaps=0;
+
+    var hints=['was that always there',
+      'something moved',
+      'that looks different',
+      'you never really looked',
+      'when did that change',
+      'are you sure'];
+
+    function isNearCursor(n){return Math.hypot(n.bx-mx,n.by-my)<320}
+
+    function doSwaps(){
+      var candidates=[];
+      for(var i=0;i<habNodes.length;i++){
+        if(!isNearCursor(habNodes[i]))candidates.push(i);
+      }
+      if(candidates.length<2)return;
+      var count=1+~~(Math.random()*(Math.min(4,1+totalSwaps*0.15)));
+      for(var s=0;s<count&&candidates.length>0;s++){
+        var ci=~~(Math.random()*candidates.length);
+        var idx=candidates[ci];
+        var n=habNodes[idx];
+        candidates.splice(ci,1);
+        var action=Math.random();
+        n.wasGlyph=n.glyph;
+        n.ghostOp=0.35;
+        if(action<0.5){
+          var ng=HBG2[~~(Math.random()*HBG2.length)];
+          while(ng===n.glyph&&HBG2.length>1)ng=HBG2[~~(Math.random()*HBG2.length)];
+          n.glyph=ng;
+        }else if(action<0.75&&candidates.length>0){
+          var ci2=~~(Math.random()*candidates.length);
+          var idx2=candidates[ci2];
+          var n2=habNodes[idx2];
+          candidates.splice(ci2,1);
+          var tmp=n.glyph;n.glyph=n2.glyph;
+          n2.wasGlyph=n2.glyph;n2.ghostOp=0.3;
+          n2.glyph=tmp;
+        }else{
+          n.bx+=Math.round((Math.random()-0.5)*30);
+          n.by+=Math.round((Math.random()-0.5)*25);
+        }
+        n.swapped=true;n.swapTimer=90;
+        totalSwaps++;
+      }
+      habSwapLog=totalSwaps;
+      if(totalSwaps>3&&Math.random()>0.5){
+        habMsgText=hints[~~(Math.random()*hints.length)];
+        habMsgOp=0.45;
+      }
+    }
+
+    var frameCount=0;
+    (function habDraw(){
+      if(!habRunning)return;
+      var G=modeCtx,W=innerWidth,H=innerHeight,t=Date.now()*0.001;
+      frameCount++;
+      G.clearRect(0,0,W,H);
+
+      if(frameCount>=nextSwapFrame){
+        doSwaps();
+        swapInterval=Math.max(40,swapInterval-2);
+        nextSwapFrame=frameCount+swapInterval+~~(Math.random()*60);
+      }
+
+      var curGlow=G.createRadialGradient(mx,my,5,mx,my,200);
+      curGlow.addColorStop(0,'rgba(200,205,230,0.04)');
+      curGlow.addColorStop(1,'rgba(30,30,50,0)');
+      G.beginPath();G.arc(mx,my,200,0,Math.PI*2);
+      G.fillStyle=curGlow;G.fill();
+
+      for(var i=0;i<habNodes.length;i++){var ni=habNodes[i];
+        for(var j=i+1;j<habNodes.length;j++){var nj=habNodes[j];
+          var dx=ni.x-nj.x,dy=ni.y-nj.y,dist=Math.sqrt(dx*dx+dy*dy);
+          if(dist>90)continue;
+          var fade=1-dist/90;
+          var near=(Math.hypot((ni.x+nj.x)/2-mx,(ni.y+nj.y)/2-my)<300)?0.08:0.03;
+          G.beginPath();G.moveTo(ni.x,ni.y);G.lineTo(nj.x,nj.y);
+          G.strokeStyle='rgba(80,85,105,'+fade*near+')';
+          G.lineWidth=0.4;G.stroke();
+        }
+      }
+
+      for(var i=0;i<habNodes.length;i++){
+        var n=habNodes[i];
+        n.x=n.bx+Math.sin(t*n.fs+n.fx)*n.fa;
+        n.y=n.by+Math.cos(t*n.fs*0.7+n.fx+2)*n.fa;
+        var near=Math.hypot(n.x-mx,n.y-my)<300;
+        var op=near?0.35:0.18;
+        var r=near?120:85,g=near?125:90,b=near?150:110;
+        if(n.swapTimer>0){
+          n.swapTimer--;
+          var flash=n.swapTimer/90;
+          if(near&&n.swapTimer>50){
+            r+=30*flash;g+=10*flash;b-=10*flash;
+          }
+        }
+        G.save();G.translate(n.x,n.y);
+        G.font=~~n.size+'px "IBM Plex Mono"';
+        G.textAlign='center';G.textBaseline='middle';
+        G.fillStyle='rgba('+~~r+','+~~g+','+~~b+','+op+')';
+        G.fillText(n.glyph,0,0);
+        if(n.ghostOp>0.01){
+          G.fillStyle='rgba(170,60,60,'+n.ghostOp+')';
+          G.fillText(n.wasGlyph,0,-12);
+          n.ghostOp*=0.97;
+        }
+        G.restore();
+      }
+
+      if(habMsgOp>0.01){
+        G.save();G.textAlign='center';G.textBaseline='middle';
+        G.font='300 10px "IBM Plex Mono"';
+        G.fillStyle='rgba(170,100,100,'+habMsgOp+')';
+        G.fillText(habMsgText,W/2,H/2+Math.sin(t*0.5)*30);
+        G.restore();
+        habMsgOp*=0.995;
+      }
+
+      if(frameCount>180){
+        var tOp=Math.min(0.35,(frameCount-180)*0.0005);
+        G.save();G.textAlign='center';G.textBaseline='middle';
+        G.font='300 11px "IBM Plex Mono"';
+        G.fillStyle='rgba(140,140,160,'+tOp+')';
+        G.fillText('you stopped looking a long time ago',W/2,H-50);
+        G.restore();
+      }
+
+      requestAnimationFrame(habDraw);
+    })();
+  },
+  exit:function(){
+    habRunning=false;
+    modeCtx.clearRect(0,0,innerWidth,innerHeight);
+    habNodes=[];
+  }
+};
+
+// ====== NOISE MODE ======
+// Pareidolia. Your brain finds patterns in pure randomness.
+// You can never be sure if you're finding signal or inventing it.
+let noiseRunning=false;
+let nBuf,nBCtx,nImgD,nPix,nW2,nH2;
+let nStareTime=0,nLastMx=0,nLastMy=0,nElapsed=0,nTextOp=0,nFrame=0;
+let nPhantoms=[];
+const NSC=6;
+
+function nSpawn(){
+  var types=['circle','line','triad','cluster','arc'];
+  nPhantoms.push({
+    x:Math.random()*innerWidth,y:Math.random()*innerHeight,
+    type:types[~~(Math.random()*types.length)],
+    r:20+Math.random()*60,angle:Math.random()*Math.PI*2,
+    life:0,maxLife:200+Math.random()*400,
+    intensity:0.03+Math.random()*0.04,
+    drift:Math.random()*0.3+0.1,phase:Math.random()*Math.PI*2
+  });
+}
+
+function nPhantomAt(px,py,t){
+  var val=0;
+  for(var i=0;i<nPhantoms.length;i++){
+    var p=nPhantoms[i];
+    var dx=px-p.x,dy=py-p.y,dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist>p.r+15)continue;
+    var age=p.life/p.maxLife;
+    var env=age<0.2?age/0.2:(age>0.8?(1-(age-0.8)/0.2):1);
+    var nearCur=Math.max(0,1-Math.hypot(p.x-mx,p.y-my)/350);
+    var stareBoost=1+nearCur*nStareTime*0.003;
+    var inten=p.intensity*env*stareBoost;
+    if(p.type==='circle'){var ring=Math.abs(dist-p.r);if(ring<8)val+=inten*(1-ring/8)*0.7}
+    else if(p.type==='line'){var lx=Math.cos(p.angle),ly=Math.sin(p.angle);var proj=dx*lx+dy*ly;var perp=Math.abs(dx*ly-dy*lx);if(perp<4&&Math.abs(proj)<p.r)val+=inten*(1-perp/4)*0.6}
+    else if(p.type==='triad'){for(var k=0;k<3;k++){var a=p.angle+k*Math.PI*2/3;var tx=p.x+Math.cos(a)*p.r*0.4;var ty=p.y+Math.sin(a)*p.r*0.4;var td=Math.hypot(px-tx,py-ty);if(td<7)val+=inten*(1-td/7)*0.9}}
+    else if(p.type==='cluster'){if(dist<p.r){var hash=(~~(px*13.7+py*7.3+p.phase*100))%17;if(hash<3)val+=inten*(1-dist/p.r)*0.5}}
+    else if(p.type==='arc'){var ang=Math.atan2(dy,dx);var aDiff=Math.abs(ang-p.angle);if(aDiff>Math.PI)aDiff=Math.PI*2-aDiff;var ring2=Math.abs(dist-p.r);if(ring2<6&&aDiff<1.2)val+=inten*(1-ring2/6)*(1-aDiff/1.2)*0.7}
+  }
+  return Math.min(val,0.2);
+}
+
+modes.noise={
+  enter:function(){
+    noiseRunning=true;nStareTime=0;nElapsed=0;nTextOp=0;nFrame=0;
+    nLastMx=mx;nLastMy=my;nPhantoms=[];
+    nW2=~~(innerWidth/NSC);nH2=~~(innerHeight/NSC);
+    nBuf=document.createElement('canvas');nBuf.width=nW2;nBuf.height=nH2;
+    nBCtx=nBuf.getContext('2d');
+    nImgD=nBCtx.createImageData(nW2,nH2);nPix=nImgD.data;
+    for(var i=0;i<8;i++)nSpawn();
+
+    (function nDraw(){
+      if(!noiseRunning)return;
+      var G=modeCtx,W=innerWidth,H=innerHeight,t=Date.now()*0.001;
+      nFrame++;nElapsed+=1/60;
+      var mdx=mx-nLastMx,mdy=my-nLastMy;
+      if(Math.abs(mdx)+Math.abs(mdy)<2){nStareTime=Math.min(nStareTime+1,300)}
+      else{nStareTime=Math.max(nStareTime-3,0)}
+      nLastMx=mx;nLastMy=my;
+      for(var i=nPhantoms.length-1;i>=0;i--){
+        var p=nPhantoms[i];p.life++;
+        p.x+=Math.sin(t*p.drift+p.phase)*0.3;p.y+=Math.cos(t*p.drift*0.7+p.phase)*0.3;
+        if(p.life>p.maxLife){nPhantoms.splice(i,1);nSpawn()}
+      }
+      if(nPhantoms.length<10&&nFrame%60===0)nSpawn();
+      var stareF=Math.min(nStareTime/100,1);
+      for(var y=0;y<nH2;y++){for(var x=0;x<nW2;x++){
+        var idx=(y*nW2+x)*4;var base=Math.random()*30;
+        var wx=x*NSC,wy=y*NSC;
+        var dCur=Math.hypot(wx-mx,wy-my);var nearCur=Math.max(0,1-dCur/250);
+        var pv=nPhantomAt(wx,wy,t);
+        var coherence=nearCur*stareF*0.15;
+        if(coherence>0){var cx2=~~(wx*0.03+t*0.5),cy2=~~(wy*0.03+t*0.3);if((cx2+cy2)%3===0)base+=coherence*40}
+        var v=base+pv*180;var tint=nearCur*0.3;
+        nPix[idx]=~~(v*(1+tint*0.1));nPix[idx+1]=~~(v*(1-tint*0.05));nPix[idx+2]=~~(v*(1+tint*0.2));nPix[idx+3]=255;
+      }}
+      nBCtx.putImageData(nImgD,0,0);
+      G.imageSmoothingEnabled=false;G.drawImage(nBuf,0,0,W,H);
+      if(stareF>0.1){G.save();G.beginPath();G.arc(mx,my,80+stareF*60,0,Math.PI*2);
+        G.strokeStyle='rgba(100,105,140,'+stareF*0.06+')';G.lineWidth=0.5;G.stroke();G.restore()}
+      if(nStareTime>120&&nFrame%300<2)nTextOp=0.4;
+      if(nTextOp>0.01){G.save();G.textAlign='center';G.textBaseline='middle';
+        G.font='300 10px "IBM Plex Mono"';G.fillStyle='rgba(160,140,140,'+nTextOp+')';
+        G.fillText('did you see that',W/2+Math.sin(t*0.4)*40,H/2+Math.cos(t*0.3)*30);
+        G.restore();nTextOp*=0.992}
+      if(nElapsed>5){var bOp=Math.min(0.35,(nElapsed-5)*0.008);
+        G.save();G.textAlign='center';G.textBaseline='middle';
+        G.font='300 11px "IBM Plex Mono"';G.fillStyle='rgba(140,140,160,'+bOp+')';
+        G.fillText('the pattern is not there',W/2,H-50);G.restore()}
+      requestAnimationFrame(nDraw);
+    })();
+  },
+  exit:function(){
+    noiseRunning=false;
+    modeCtx.clearRect(0,0,innerWidth,innerHeight);
+    nPhantoms=[];nBuf=null;
+  }
+};
+
+// ====== COMPRESSION MODE ======
+// Your senses are a lossy codec. You are always approximating.
+let compRunning=false,compElapsed=0;
+let compSrc,compSrcCtx;
+let compLevels=[];
+let compScanline,compScanCtx;
+
+modes.compression={
+  enter:function(){
+    compRunning=true;compElapsed=0;
+    var W=innerWidth,H=innerHeight;
+    var SRC_SC=4;
+    var sW=Math.ceil(W/SRC_SC),sH=Math.ceil(H/SRC_SC);
+    compSrc=document.createElement('canvas');
+    compSrc.width=sW;compSrc.height=sH;
+    compSrcCtx=compSrc.getContext('2d');
+    compLevels=[];
+    // Downscale levels relative to screen (not source)
+    [2,6,16,32].forEach(function(s){
+      var c=document.createElement('canvas');
+      c.width=Math.ceil(W/s);c.height=Math.ceil(H/s);
+      compLevels.push({canvas:c,ctx:c.getContext('2d'),scale:s});
+    });
+    // Pre-render scanline overlay once
+    compScanline=document.createElement('canvas');
+    compScanline.width=W;compScanline.height=H;
+    compScanCtx=compScanline.getContext('2d');
+    compScanCtx.fillStyle='rgba(12,12,18,1)';
+    for(var by=0;by<H;by+=3)compScanCtx.fillRect(0,by,W,1);
+
+    (function compDraw(){
+      if(!compRunning)return;
+      var G=modeCtx,W=innerWidth,H=innerHeight,t=Date.now()*0.001;
+      compElapsed+=1/60;
+
+      // 1) Render source at 1/4 size — soft gradients don't need full res
+      var S=compSrcCtx;
+      S.fillStyle='#080810';S.fillRect(0,0,sW,sH);
+      for(var i=0;i<8;i++){
+        var cx=sW*(0.5+0.4*Math.sin(t*0.13*(i+1)+i*1.7));
+        var cy=sH*(0.5+0.4*Math.cos(t*0.11*(i+1)+i*2.1));
+        var rad=(150+Math.sin(t*0.2+i*0.8)*80)/SRC_SC;
+        var g=S.createRadialGradient(cx,cy,0,cx,cy,rad);
+        var hue=210+i*18+Math.sin(t*0.15+i)*30;
+        var lt=12+Math.sin(t*0.3+i*1.5)*5;
+        g.addColorStop(0,'hsla('+~~hue+',30%,'+(lt+8)+'%,0.35)');
+        g.addColorStop(0.5,'hsla('+~~hue+',25%,'+(lt+3)+'%,0.15)');
+        g.addColorStop(1,'hsla('+~~hue+',20%,'+lt+'%,0)');
+        S.fillStyle=g;S.fillRect(0,0,sW,sH);
+      }
+      for(var i=0;i<6;i++){
+        var fx=sW*((Math.sin(t*0.23+i*3.1)+1)/2);
+        var fy=sH*((Math.cos(t*0.19+i*2.7)+1)/2);
+        var fr=(30+Math.sin(t*0.4+i)*15)/SRC_SC;
+        var g2=S.createRadialGradient(fx,fy,0,fx,fy,fr);
+        g2.addColorStop(0,'rgba(120,130,170,0.12)');
+        g2.addColorStop(1,'rgba(40,45,70,0)');
+        S.fillStyle=g2;S.fillRect(0,0,sW,sH);
+      }
+
+      // 2) Downscale from small source to even smaller levels
+      for(var i=0;i<compLevels.length;i++){
+        var lv=compLevels[i];
+        lv.ctx.imageSmoothingEnabled=true;
+        lv.ctx.drawImage(compSrc,0,0,lv.canvas.width,lv.canvas.height);
+      }
+
+      // 3) Composite: pixelated far, sharp near cursor
+      G.clearRect(0,0,W,H);
+      var compF=Math.min(compElapsed*0.06,1);
+      G.imageSmoothingEnabled=false;
+      G.drawImage(compLevels[Math.min(~~(3*compF),3)].canvas,0,0,W,H);
+      var rings=[{lv:Math.min(2,~~(2*compF)),r:550},{lv:Math.min(1,~~(compF+0.5)),r:380},{lv:0,r:260}];
+      for(var i=0;i<rings.length;i++){
+        G.save();G.beginPath();G.arc(mx,my,rings[i].r,0,Math.PI*2);G.clip();
+        G.drawImage(compLevels[rings[i].lv].canvas,0,0,W,H);
+        G.restore();
+      }
+      // "Sharp" center — source scaled up with smoothing (still just blobs)
+      G.save();G.beginPath();G.arc(mx,my,160,0,Math.PI*2);G.clip();
+      G.imageSmoothingEnabled=true;
+      G.drawImage(compSrc,0,0,W,H);G.restore();
+
+      // Scanline overlay (pre-rendered)
+      if(compF>0.3){G.save();G.globalAlpha=compF*0.06;G.drawImage(compScanline,0,0);G.restore()}
+
+      // Cursor glow
+      G.save();var cg=G.createRadialGradient(mx,my,5,mx,my,200);
+      cg.addColorStop(0,'rgba(180,190,220,0.06)');cg.addColorStop(0.5,'rgba(120,130,170,0.02)');cg.addColorStop(1,'rgba(30,30,50,0)');
+      G.beginPath();G.arc(mx,my,200,0,Math.PI*2);G.fillStyle=cg;G.fill();G.restore();
+      if(compElapsed>5){var bOp=Math.min(0.35,(compElapsed-5)*0.006);
+        G.save();G.textAlign='center';G.textBaseline='middle';
+        G.font='300 11px "IBM Plex Mono"';G.fillStyle='rgba(140,140,160,'+bOp+')';
+        G.fillText('you are always approximating',W/2,H-50);G.restore()}
+      requestAnimationFrame(compDraw);
+    })();
+  },
+  exit:function(){
+    compRunning=false;
+    modeCtx.clearRect(0,0,innerWidth,innerHeight);
+    compSrc=null;compSrcCtx=null;compLevels=[];
+  }
+};
+
+// ====== BOUNDARY MODE ======
+// Where do you end. The edge is not where you think it is.
+let bndRunning=false;
+let bndGrid,bndGridB,bndCols,bndRows,bndElapsed=0,bndFrame=0;
+const BND_CS=8;
+
+function bndIdx(x,y){return y*bndCols+x}
+function bndGet(x,y){if(x<0||x>=bndCols||y<0||y>=bndRows)return 0;return bndGrid[y*bndCols+x]}
+function bndNeigh(x,y){
+  var s=0,c=0;
+  for(var dy=-1;dy<=1;dy++){for(var dx=-1;dx<=1;dx++){
+    if(dx===0&&dy===0)continue;s+=bndGet(x+dx,y+dy);c++;
+  }}return s/c;
+}
+function bndIsBnd(x,y){
+  var v=bndGrid[y*bndCols+x];
+  for(var dy=-1;dy<=1;dy++){for(var dx=-1;dx<=1;dx++){
+    if(dx===0&&dy===0)continue;
+    if(Math.abs(bndGet(x+dx,y+dy)-v)>0.3)return true;
+  }}return false;
+}
+
+modes.boundary={
+  enter:function(){
+    bndRunning=true;bndElapsed=0;bndFrame=0;
+    var W=innerWidth,H=innerHeight;
+    bndCols=Math.ceil(W/BND_CS);bndRows=Math.ceil(H/BND_CS);
+    bndGrid=new Float32Array(bndCols*bndRows);
+    bndGridB=new Float32Array(bndCols*bndRows);
+
+    (function bndDraw(){
+      if(!bndRunning)return;
+      var G=modeCtx,W=innerWidth,H=innerHeight,t=Date.now()*0.001;
+      bndFrame++;bndElapsed+=1/60;
+      for(var y=0;y<bndRows;y++){for(var x=0;x<bndCols;x++){
+        var i=bndIdx(x,y),v=bndGrid[i];
+        var wx=x*BND_CS+BND_CS/2,wy=y*BND_CS+BND_CS/2;
+        var d=Math.hypot(wx-mx,wy-my);
+        var nv=v;
+        if(d<140){nv=Math.min(nv+0.06*(1-d/140),1)}
+        var avg=bndNeigh(x,y),diff=Math.abs(avg-v);
+        if(diff>0.15){nv+=(Math.random()-0.5)*0.04*diff}
+        if(d>200){nv-=0.003+bndElapsed*0.000003}
+        if(v>0.6&&Math.random()<0.0004+bndElapsed*0.00001){nv-=0.3+Math.random()*0.3}
+        if(v<0.3&&d>250&&Math.random()<0.0002){nv+=0.15}
+        nv+=(avg-v)*0.02;
+        bndGridB[i]=Math.max(0,Math.min(1,nv));
+      }}
+      var tmp=bndGrid;bndGrid=bndGridB;bndGridB=tmp;
+      G.clearRect(0,0,W,H);
+      for(var y=0;y<bndRows;y++){for(var x=0;x<bndCols;x++){
+        var v=bndGrid[bndIdx(x,y)],bnd=bndIsBnd(x,y);
+        var wx=x*BND_CS+BND_CS/2,wy=y*BND_CS+BND_CS/2;
+        var nearCur=Math.max(0,1-Math.hypot(wx-mx,wy-my)/300);
+        var r,g,b,op;
+        if(bnd){var flk=Math.sin(t*4+x*0.7+y*0.9)*0.5+0.5;
+          r=60+v*40+flk*30+nearCur*20;g=45+v*25-flk*5;b=50+v*20-flk*10;op=0.25+flk*0.15+nearCur*0.15}
+        else if(v>0.5){r=35+v*45+nearCur*25;g=40+v*50+nearCur*25;b=55+v*65+nearCur*30;op=0.12+v*0.18+nearCur*0.1}
+        else{r=15+v*20;g=12+v*15;b=18+v*20;op=0.06+v*0.08+nearCur*0.05}
+        G.fillStyle='rgba('+~~r+','+~~g+','+~~b+','+op+')';
+        G.fillRect(x*BND_CS,y*BND_CS,BND_CS,BND_CS);
+      }}
+      if(bndFrame%3===0){for(var y=1;y<bndRows-1;y++){for(var x=1;x<bndCols-1;x++){
+        if(!bndIsBnd(x,y))continue;
+        G.fillStyle='rgba(170,80,60,'+(0.02+Math.random()*0.04)+')';
+        G.fillRect(x*BND_CS-1,y*BND_CS-1,BND_CS+2,BND_CS+2);
+      }}}
+      G.save();var cg=G.createRadialGradient(mx,my,5,mx,my,160);
+      cg.addColorStop(0,'rgba(180,190,220,0.04)');cg.addColorStop(1,'rgba(30,30,50,0)');
+      G.beginPath();G.arc(mx,my,160,0,Math.PI*2);G.fillStyle=cg;G.fill();G.restore();
+      if(bndElapsed>4){var bOp=Math.min(0.35,(bndElapsed-4)*0.006);
+        G.save();G.textAlign='center';G.textBaseline='middle';
+        G.font='300 11px "IBM Plex Mono"';G.fillStyle='rgba(140,140,160,'+bOp+')';
+        G.fillText('the edge is not where you think it is',W/2,H-50);G.restore()}
+      requestAnimationFrame(bndDraw);
+    })();
+  },
+  exit:function(){
+    bndRunning=false;
+    modeCtx.clearRect(0,0,innerWidth,innerHeight);
+    bndGrid=null;bndGridB=null;
+  }
+};
+
+// ====== DIMENSIONS MODE ======
+// 4D tesseract projected to 2D. You are seeing a shadow of something real.
+let dimRunning=false,dimElapsed=0,dimFrame=0;
+var dimVerts=[];var dimEdges=[];var dimTrail=[];
+for(var _i=0;_i<16;_i++)dimVerts.push([(_i&1)?1:-1,(_i&2)?1:-1,(_i&4)?1:-1,(_i&8)?1:-1]);
+for(var _i=0;_i<16;_i++){for(var _j=_i+1;_j<16;_j++){
+  var _d=0;for(var _k=0;_k<4;_k++)if(dimVerts[_i][_k]!==dimVerts[_j][_k])_d++;
+  if(_d===1)dimEdges.push([_i,_j]);
+}}
+function dimRot(p,plane,angle){
+  var c=Math.cos(angle),s=Math.sin(angle),r=[p[0],p[1],p[2],p[3]],a,b;
+  if(plane==='xy'){a=0;b=1}else if(plane==='xz'){a=0;b=2}else if(plane==='xw'){a=0;b=3}
+  else if(plane==='yz'){a=1;b=2}else if(plane==='yw'){a=1;b=3}else{a=2;b=3}
+  var va=r[a],vb=r[b];r[a]=va*c-vb*s;r[b]=va*s+vb*c;return r;
+}
+function dimProj(p4){
+  var d1=3.5,s1=d1/(d1+p4[3]),p3=[p4[0]*s1,p4[1]*s1,p4[2]*s1];
+  var d2=4,s2=d2/(d2+p3[2]);
+  return{x:p3[0]*s2,y:p3[1]*s2,depth:p3[2]+p4[3],scale:s1*s2};
+}
+
+modes.dimensions={
+  enter:function(){
+    dimRunning=true;dimElapsed=0;dimFrame=0;dimTrail=[];
+    (function dimDraw(){
+      if(!dimRunning)return;
+      var G=modeCtx,W=innerWidth,H=innerHeight,t=Date.now()*0.001;
+      dimFrame++;dimElapsed+=1/60;
+      G.clearRect(0,0,W,H);
+      var mnx=(mx-W/2)/W*2,mny=(my-H/2)/H*2;
+      var axw=mnx*Math.PI*0.8,ayw=mny*Math.PI*0.8;
+      var axy=t*0.15,azw=t*0.12,axz=t*0.08;
+      var sz=Math.min(W,H)*0.22,proj=[];
+      for(var i=0;i<16;i++){
+        var p=dimVerts[i].slice();
+        p=dimRot(p,'xy',axy);p=dimRot(p,'xz',axz);p=dimRot(p,'zw',azw);
+        p=dimRot(p,'xw',axw);p=dimRot(p,'yw',ayw);
+        var pr=dimProj(p);
+        proj.push({x:W/2+pr.x*sz,y:H/2+pr.y*sz,depth:pr.depth,scale:pr.scale});
+      }
+      if(dimFrame%4===0){
+        dimTrail.push(proj.map(function(p){return{x:p.x,y:p.y,depth:p.depth}}));
+        if(dimTrail.length>12)dimTrail.shift();
+      }
+      for(var ti=0;ti<dimTrail.length;ti++){
+        var age=1-(ti/dimTrail.length),tp=dimTrail[ti],tOp=age*0.015;
+        for(var e=0;e<dimEdges.length;e++){
+          var a=tp[dimEdges[e][0]],b=tp[dimEdges[e][1]];
+          G.beginPath();G.moveTo(a.x,a.y);G.lineTo(b.x,b.y);
+          G.strokeStyle='rgba(80,85,120,'+tOp+')';G.lineWidth=0.3;G.stroke();
+        }
+      }
+      dimEdges.sort(function(a,b){return(proj[a[0]].depth+proj[a[1]].depth)-(proj[b[0]].depth+proj[b[1]].depth)});
+      for(var e=0;e<dimEdges.length;e++){
+        var a=proj[dimEdges[e][0]],b=proj[dimEdges[e][1]];
+        var dF=Math.max(0.1,Math.min(1,((a.depth+b.depth)/2+4)/8));
+        var br=0.15+dF*0.5;
+        G.beginPath();G.moveTo(a.x,a.y);G.lineTo(b.x,b.y);
+        G.strokeStyle='rgba('+(70+~~(dF*80))+','+(75+~~(dF*75))+','+(100+~~(dF*100))+','+br+')';
+        G.lineWidth=0.5+dF*1.2;G.stroke();
+      }
+      for(var i=0;i<16;i++){
+        var p=proj[i],dF=Math.max(0.1,Math.min(1,(p.depth+4)/8));
+        var r2=p.scale*2.5+dF*2,br=0.2+dF*0.6;
+        G.beginPath();G.arc(p.x,p.y,r2,0,Math.PI*2);
+        G.fillStyle='rgba('+(90+~~(dF*100))+','+(95+~~(dF*90))+','+(130+~~(dF*100))+','+br+')';G.fill();
+        if(dF>0.6){G.beginPath();G.arc(p.x,p.y,r2+3,0,Math.PI*2);
+          G.fillStyle='rgba(150,155,200,'+(dF-0.6)*0.1+')';G.fill()}
+      }
+      if(dimElapsed>2){var dOp=Math.min(0.2,(dimElapsed-2)*0.004);
+        G.save();G.textAlign='right';G.textBaseline='top';
+        G.font='300 9px "IBM Plex Mono"';G.fillStyle='rgba(100,105,140,'+dOp+')';
+        G.fillText('4D \u2192 2D',W-40,40);G.restore()}
+      if(dimElapsed>5){var bOp=Math.min(0.35,(dimElapsed-5)*0.006);
+        G.save();G.textAlign='center';G.textBaseline='middle';
+        G.font='300 11px "IBM Plex Mono"';G.fillStyle='rgba(140,140,160,'+bOp+')';
+        G.fillText('you are seeing a shadow of something real',W/2,H-50);G.restore()}
+      requestAnimationFrame(dimDraw);
+    })();
+  },
+  exit:function(){
+    dimRunning=false;
+    modeCtx.clearRect(0,0,innerWidth,innerHeight);
+    dimTrail=[];
+  }
+};
+
+// ====== FREQUENCY MODE ======
+// Wave interference. Everything is frequency.
+let freqRunning=false,freqElapsed=0;
+let fqBuf,fqBCtx,fqImgD,fqPix,fqW,fqH,fqSources=[];
+const FQ_SC=6;
+
+modes.frequency={
+  enter:function(){
+    freqRunning=true;freqElapsed=0;
+    var W=innerWidth,H=innerHeight;
+    fqW=Math.ceil(W/FQ_SC);fqH=Math.ceil(H/FQ_SC);
+    fqBuf=document.createElement('canvas');fqBuf.width=fqW;fqBuf.height=fqH;
+    fqBCtx=fqBuf.getContext('2d');
+    fqImgD=fqBCtx.createImageData(fqW,fqH);fqPix=fqImgD.data;
+    fqSources=[
+      {x:W*0.15,y:H*0.2,freq:0.025,speed:1.8,amp:1.0,phase:0},
+      {x:W*0.85,y:H*0.3,freq:0.03,speed:2.1,amp:0.9,phase:1.2},
+      {x:W*0.5,y:H*0.85,freq:0.022,speed:1.5,amp:1.0,phase:2.5},
+      {x:W*0.2,y:H*0.7,freq:0.028,speed:2.4,amp:0.85,phase:0.8},
+      {x:W*0.8,y:H*0.75,freq:0.033,speed:1.9,amp:0.9,phase:3.7},
+      {x:W*0.5,y:H*0.15,freq:0.019,speed:2.6,amp:0.8,phase:1.9}
+    ];
+    (function fqDraw(){
+      if(!freqRunning)return;
+      var G=modeCtx,W=innerWidth,H=innerHeight,t=Date.now()*0.001;
+      freqElapsed+=1/60;
+      for(var y=0;y<fqH;y++){for(var x=0;x<fqW;x++){
+        var wx=x*FQ_SC,wy=y*FQ_SC,sum=0;
+        for(var s=0;s<fqSources.length;s++){
+          var src=fqSources[s];
+          var d=Math.sqrt((wx-src.x)*(wx-src.x)+(wy-src.y)*(wy-src.y));
+          sum+=Math.sin(d*src.freq-t*src.speed+src.phase)*src.amp/(1+d*0.002);
+        }
+        var cd=Math.sqrt((wx-mx)*(wx-mx)+(wy-my)*(wy-my));
+        sum+=Math.sin(cd*0.035-t*2.2)*1.2/(1+cd*0.001);
+        var norm=(sum+4)/8,pos=Math.max(0,sum)/4,neg=Math.max(0,-sum)/4;
+        var r=8+norm*35+pos*60,g=10+norm*40+pos*40-neg*10,b=18+norm*55+pos*30+neg*25;
+        if(pos>0.3){r+=pos*40;g+=pos*30;b+=pos*50}
+        if(neg>0.2){r+=neg*30;b-=neg*15}
+        var nearC=Math.max(0,1-cd/300);r+=nearC*15;g+=nearC*12;b+=nearC*20;
+        var idx=(y*fqW+x)*4;
+        fqPix[idx]=~~Math.min(r,255);fqPix[idx+1]=~~Math.min(g,255);fqPix[idx+2]=~~Math.min(b,255);fqPix[idx+3]=255;
+      }}
+      fqBCtx.putImageData(fqImgD,0,0);
+      G.imageSmoothingEnabled=false;G.drawImage(fqBuf,0,0,W,H);
+      for(var s=0;s<fqSources.length;s++){
+        var src=fqSources[s],pulse=Math.sin(t*src.speed+src.phase)*0.5+0.5;
+        G.beginPath();G.arc(src.x,src.y,3+pulse*2,0,Math.PI*2);
+        G.fillStyle='rgba(120,125,170,'+(0.08+pulse*0.06)+')';G.fill();
+      }
+      G.save();var cg=G.createRadialGradient(mx,my,3,mx,my,120);
+      cg.addColorStop(0,'rgba(200,205,240,0.06)');cg.addColorStop(1,'rgba(30,30,50,0)');
+      G.beginPath();G.arc(mx,my,120,0,Math.PI*2);G.fillStyle=cg;G.fill();G.restore();
+      if(freqElapsed>4){var bOp=Math.min(0.35,(freqElapsed-4)*0.006);
+        G.save();G.textAlign='center';G.textBaseline='middle';
+        G.font='300 11px "IBM Plex Mono"';G.fillStyle='rgba(140,140,160,'+bOp+')';
+        G.fillText('everything is frequency',W/2,H-50);G.restore()}
+      requestAnimationFrame(fqDraw);
+    })();
+  },
+  exit:function(){
+    freqRunning=false;
+    modeCtx.clearRect(0,0,innerWidth,innerHeight);
+    fqBuf=null;fqSources=[];
+  }
+};
+
+// ====== ALL MODES COMPLETE ======
+
+// ====== IDLE GLITCH ======
+if(!isMobile)document.addEventListener('mousemove',()=>lastMouseMove=Date.now());
+setInterval(()=>{
+  if(!activeMode&&Date.now()-lastMouseMove>12000){
+    const g=document.getElementById('glyph');
+    if(g){g.style.filter='blur(4px)';setTimeout(()=>g.style.filter='',4000)}
+  }
+},14000);
+
+// ====== DIGITAL GLITCH SYSTEM ======
+function glitchTick(){
+  if(activeMode||corruptLevel<1){setTimeout(glitchTick,2000);return}
+  const g=document.getElementById('glyph');
+  if(!g){setTimeout(glitchTick,2000);return}
+
+  // probability and intensity scale with corruption
+  const prob=0.08+corruptLevel*0.05;
+  if(Math.random()>prob){
+    // schedule next check — more frequent at higher corruption
+    setTimeout(glitchTick,2000-corruptLevel*150);
+    return;
+  }
+
+  const cl=corruptLevel;
+  const intensity=cl/8;
+
+  const burstCount=1+Math.floor(Math.random()*Math.min(cl,4));
+  let i=0;
+
+  function burst(){
+    if(i>=burstCount){
+      g.style.transform='';
+      g.style.opacity='';
+      g.style.textShadow='';
+      setTimeout(glitchTick,1500-cl*100);
+      return;
+    }
+
+    const effects=[];
+
+    // 1. horizontal slice displacement (translateX + scaleY squeeze simulates clip slice)
+    if(Math.random()<0.6){
+      const sx=(Math.random()-0.5)*intensity*20;
+      effects.push('translateX('+sx+'px)');
+      if(Math.random()<0.4){
+        const sy=0.7+Math.random()*0.6;
+        effects.push('scaleY('+sy+')');
+      }
+    }
+
+    // 2. position jitter
+    if(Math.random()<0.5){
+      const sx=(Math.random()-0.5)*intensity*12;
+      const sy=(Math.random()-0.5)*intensity*6;
+      effects.push('translate('+sx+'px,'+sy+'px)');
+    }
+
+    // 3. skew
+    if(Math.random()<0.3){
+      effects.push('skewX('+(Math.random()-0.5)*intensity*4+'deg)');
+    }
+
+    g.style.transform=effects.join(' ');
+
+    // 4. opacity flicker
+    if(Math.random()<0.3*intensity){
+      g.style.opacity=0.3+Math.random()*0.5;
+    }
+
+    // 5. chromatic split via text-shadow (stays on promoted layer)
+    if(cl>=3&&Math.random()<0.5){
+      const sx=intensity*(3+Math.random()*5);
+      g.style.textShadow=sx+'px 0 rgba(170,26,26,'+(intensity*0.5)+'), '+(-sx)+'px 0 rgba(40,80,170,'+(intensity*0.4)+')';
+    }else{
+      g.style.textShadow='';
+    }
+
+    i++;
+    setTimeout(burst,30+Math.random()*50);
+  }
+
+  burst();
+}
+setTimeout(glitchTick,3000);
+
+
+// ====== BILINGUAL FLICKER SYSTEM (GPU-friendly, no reflow) ======
+const flickerState={lang:'zh'};
+const modeZh={signal:'\u4fe1\u865f',frequency:'\u983b\u7387',compression:'\u58d3\u7e2e',observer:'\u89c0\u5bdf\u8005',noise:'\u96dc\u8a0a',boundary:'\u908a\u754c',habit:'\u7fd2\u6163',dimensions:'\u7dad\u5ea6'};
+let flickerPairs=[];
+
+function initBilingual(){
+  document.querySelectorAll('.bilingual').forEach(el=>{
+    const en=el.getAttribute('data-en');
+    const zh=el.getAttribute('data-zh');
+    if(!en||!zh)return;
+    el.textContent='';
+    const spanZh=document.createElement('span');
+    spanZh.className='bl-zh';spanZh.textContent=zh;
+    spanZh.style.opacity='1';
+    const spanEn=document.createElement('span');
+    spanEn.className='bl-en';spanEn.textContent=en;
+    spanEn.style.opacity='0';
+    el.appendChild(spanZh);
+    el.appendChild(spanEn);
+    flickerPairs.push({el:el,zh:spanZh,en:spanEn});
+  });
+}
+
+function flickerTo(pair,lang){
+  pair.zh.style.opacity=lang==='zh'?'1':'0';
+  pair.en.style.opacity=lang==='en'?'1':'0';
+}
+
+function scheduleFlicker(){
+  const baseInterval=4000-corruptLevel*250;
+  const interval=Math.max(baseInterval+Math.random()*4000,800);
+  setTimeout(flickerTick,interval);
+}
+
+function flickerTick(){
+  if(activeMode){scheduleFlicker();return}
+
+  const targetLang=flickerState.lang==='en'?'zh':'en';
+  flickerState.lang=targetLang;
+
+  requestAnimationFrame(()=>{
+    for(var i=0;i<flickerPairs.length;i++){
+      if(!flickerPairs[i].el.classList.contains('hidden'))
+        flickerTo(flickerPairs[i],targetLang);
+    }
+  });
+
+  scheduleFlicker();
+}
+
+</script>
+</body>
+</html>
