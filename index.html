@@ -140,6 +140,7 @@ canvas#mode-canvas.on{opacity:1}
   .frag[data-p="noise"]{left:38%!important;top:10%!important}
   .frag[data-p="boundary"]{left:30%!important;top:82%!important}
   .frag[data-p="habit"]{left:10%!important;top:56%!important}
+  .frag[data-p="consensus"]{left:40%!important;top:48%!important}
   #mantra{font-size:0.7rem!important}
   .corner{font-size:0.55rem!important}
   #coord{font-size:0.45rem!important}
@@ -204,6 +205,7 @@ canvas#mode-canvas.on{opacity:1}
 <div class="frag bilingual" data-p="boundary" data-en="boundary" data-zh="邊界" style="top:88%;left:42%">boundary</div>
 <div class="frag bilingual" data-p="habit" data-en="habit" data-zh="習慣" style="top:53%;left:16%">habit</div>
 <div class="frag bilingual" data-p="dimensions" data-en="dimensions" data-zh="維度" style="top:40%;left:72%">dimensions</div>
+<div class="frag bilingual consensus-frag" data-p="consensus" data-en="consensus" data-zh="共識" style="top:50%;left:50%;opacity:0;pointer-events:none">consensus</div>
 
 <div class="corner bilingual" id="c-tl" data-en="22.6273°N 120.3014°E" data-zh="高雄市">22.6273°N 120.3014°E</div>
 <div class="corner" id="c-br">psychosis.tw</div>
@@ -250,7 +252,7 @@ function applyCorrupt(lv){
 
   // counter
   const vc=document.getElementById('visit-count');
-  if(vc&&lv>0){vc.textContent=lv+'/8';vc.classList.add('on');vc.setAttribute('data-en',lv+'/8');vc.setAttribute('data-zh',lv+'/8');vc.classList.add('bilingual')}
+  if(vc&&lv>0&&lv<=8){vc.textContent=lv+'/8';vc.classList.add('on');vc.setAttribute('data-en',lv+'/8');vc.setAttribute('data-zh',lv+'/8');vc.classList.add('bilingual')}
 
   // mark touched
   document.querySelectorAll('.frag').forEach(f=>{if(getV().includes(f.dataset.p))f.classList.add('touched')});
@@ -311,6 +313,16 @@ function fullBreach(){
     end.textContent='\u4f60\u770b\u5230\u4e86';  // you saw it
     center.appendChild(end);
     setTimeout(()=>end.style.opacity='0.6',100);
+
+    // reveal the 9th fragment — consensus emerges from breach
+    setTimeout(()=>{
+      const cf=document.querySelector('.consensus-frag');
+      if(cf){
+        cf.style.transition='opacity 8s ease';
+        cf.style.opacity='1';
+        cf.style.pointerEvents='auto';
+      }
+    },5000);
   },3000);
 }
 
@@ -1438,6 +1450,214 @@ modes.frequency={
   }
 };
 
+// ====== CONSENSUS MODE ======
+// Multiple minds perceive the same field differently.
+// Where they agree, reality solidifies. Where they disagree, it flickers.
+// Where no one looks, dissolution.
+let conRunning=false;
+
+modes.consensus={
+  enter:function(){
+    conRunning=true;
+    var W=innerWidth,H=innerHeight;
+    var CON_SC=isMobile?4:5;
+    var gW=Math.ceil(W/CON_SC),gH=Math.ceil(H/CON_SC);
+    var conBuf=document.createElement('canvas');conBuf.width=gW;conBuf.height=gH;
+    var conBCtx=conBuf.getContext('2d');
+    var conImgD=conBCtx.createImageData(gW,gH),conPix=conImgD.data;
+    var elapsed=0,textOp=0;
+
+    // The underlying "field" — what reality actually is (if anything)
+    var field=[];
+    for(var i=0;i<gW*gH;i++){
+      field.push({
+        base:Math.random(),           // underlying value
+        freq:0.5+Math.random()*2,     // oscillation
+        phase:Math.random()*Math.PI*2  // offset
+      });
+    }
+
+    // Autonomous minds — each perceives differently
+    var minds=[
+      {x:W*0.2,y:H*0.3,vx:0.4,vy:0.3,bias:0,hue:[140,60,80],r:220*vS,name:'alpha'},
+      {x:W*0.8,y:H*0.6,vx:-0.3,vy:0.4,bias:0.33,hue:[60,80,150],r:200*vS,name:'beta'},
+      {x:W*0.5,y:H*0.2,vx:0.2,vy:-0.35,bias:0.67,hue:[80,140,120],r:190*vS,name:'gamma'},
+      {x:W*0.3,y:H*0.8,vx:-0.25,vy:-0.3,bias:0.5,hue:[120,70,140],r:180*vS,name:'delta'}
+    ];
+
+    function moveMind(m,t){
+      // gentle wandering with avoidance of edges
+      m.vx+=((Math.sin(t*0.7+m.bias*10)*0.15)-m.vx*0.01);
+      m.vy+=((Math.cos(t*0.5+m.bias*7)*0.15)-m.vy*0.01);
+      var spd=Math.sqrt(m.vx*m.vx+m.vy*m.vy);
+      if(spd>1.2){m.vx*=1.2/spd;m.vy*=1.2/spd}
+      m.x+=m.vx;m.y+=m.vy;
+      // soft bounce
+      if(m.x<W*0.05){m.vx+=0.1}if(m.x>W*0.95){m.vx-=0.1}
+      if(m.y<H*0.05){m.vy+=0.1}if(m.y>H*0.95){m.vy-=0.1}
+    }
+
+    function mindSees(m,fv,t){
+      // each mind interprets the base field value differently
+      return (fv+m.bias+Math.sin(t*0.3+m.bias*5)*0.15)%1;
+    }
+
+    (function conDraw(){
+      if(!conRunning)return;
+      var G=modeCtx,t=Date.now()*0.001;
+      W=innerWidth;H=innerHeight;
+      elapsed+=1/60;
+
+      // move autonomous minds
+      for(var mi=0;mi<minds.length;mi++)moveMind(minds[mi],t);
+
+      // render field
+      for(var y=0;y<gH;y++){for(var x=0;x<gW;x++){
+        var wx=x*CON_SC,wy=y*CON_SC;
+        var fi=y*gW+x;
+        var fv=field[fi].base+Math.sin(t*field[fi].freq+field[fi].phase)*0.08;
+
+        // calculate each mind's influence at this pixel
+        var totalInfluence=0;
+        var agreement=0;
+        var rSum=0,gSum=0,bSum=0;
+        var perceptions=[];
+        var activeMinds=0;
+
+        // user's mind
+        var ud=Math.hypot(wx-mx,wy-my);
+        var uInf=Math.max(0,1-ud/(240*vS));
+        if(uInf>0.05){
+          uInf=uInf*uInf; // falloff curve
+          var userPerc=(fv+0.15+Math.sin(t*0.2)*0.05)%1;
+          perceptions.push({v:userPerc,inf:uInf,r:170,g:130,b:140});
+          totalInfluence+=uInf;
+          activeMinds++;
+        }
+
+        // AI minds
+        for(var mi=0;mi<minds.length;mi++){
+          var m=minds[mi];
+          var md=Math.hypot(wx-m.x,wy-m.y);
+          var mInf=Math.max(0,1-md/m.r);
+          if(mInf>0.05){
+            mInf=mInf*mInf;
+            var mv=mindSees(m,fv,t);
+            perceptions.push({v:mv,inf:mInf,r:m.hue[0],g:m.hue[1],b:m.hue[2]});
+            totalInfluence+=mInf;
+            activeMinds++;
+          }
+        }
+
+        var r,g,b,op;
+
+        if(activeMinds===0){
+          // void — no one perceiving. raw dissolution.
+          var noise=Math.random()*12;
+          r=noise;g=noise+2;b=noise+4;op=0.6;
+        }else if(activeMinds===1){
+          // single perception — faint, uncertain, alone
+          var p=perceptions[0];
+          var v=p.v;
+          r=p.r*0.15*v;g=p.g*0.15*v;b=p.b*0.15*v;
+          op=0.3+p.inf*0.15;
+          // slight shimmer of doubt
+          if(Math.random()<0.03){r+=20;g+=20;b+=20}
+        }else{
+          // multiple minds — check agreement
+          var meanV=0;
+          for(var pi=0;pi<perceptions.length;pi++)meanV+=perceptions[pi].v*perceptions[pi].inf;
+          meanV/=totalInfluence;
+          var variance=0;
+          for(var pi=0;pi<perceptions.length;pi++){
+            var diff=perceptions[pi].v-meanV;
+            variance+=diff*diff*perceptions[pi].inf;
+          }
+          variance/=totalInfluence;
+          agreement=Math.max(0,1-variance*12); // 0=total disagreement, 1=consensus
+
+          // blend colors weighted by influence
+          for(var pi=0;pi<perceptions.length;pi++){
+            var p=perceptions[pi],w=p.inf/totalInfluence;
+            rSum+=p.r*w;gSum+=p.g*w;bSum+=p.b*w;
+          }
+
+          if(agreement>0.5){
+            // CONSENSUS — reality solidifies. Bright, coherent.
+            var solidify=((agreement-0.5)*2);
+            var v=meanV;
+            r=rSum*0.2*(0.5+v*0.8)+solidify*60;
+            g=gSum*0.2*(0.5+v*0.8)+solidify*55;
+            b=bSum*0.25*(0.5+v*0.8)+solidify*70;
+            op=0.4+solidify*0.45+totalInfluence*0.1;
+          }else{
+            // DISAGREEMENT — competing interpretations flicker
+            var flicker=Math.random()<0.15;
+            var pick=flicker?perceptions[~~(Math.random()*perceptions.length)]:perceptions[0];
+            var v=pick.v;
+            r=pick.r*0.12*v+rSum*0.05;
+            g=pick.g*0.12*v+gSum*0.05;
+            b=pick.b*0.12*v+bSum*0.05;
+            op=0.2+totalInfluence*0.15;
+            // disagreement static
+            if(Math.random()<(1-agreement)*0.08){r+=30;g+=25;b+=35}
+          }
+        }
+
+        var idx=fi*4;
+        conPix[idx]=~~Math.min(r,255);
+        conPix[idx+1]=~~Math.min(g,255);
+        conPix[idx+2]=~~Math.min(b,255);
+        conPix[idx+3]=~~(op*255);
+      }}
+
+      conBCtx.putImageData(conImgD,0,0);
+      G.clearRect(0,0,W,H);
+      G.imageSmoothingEnabled=false;
+      G.drawImage(conBuf,0,0,W,H);
+
+      // draw mind indicators — faint circles showing where each perception field is
+      G.save();
+      for(var mi=0;mi<minds.length;mi++){
+        var m=minds[mi];
+        var mg=G.createRadialGradient(m.x,m.y,3,m.x,m.y,m.r*0.3);
+        mg.addColorStop(0,'rgba('+m.hue[0]+','+m.hue[1]+','+m.hue[2]+',0.04)');
+        mg.addColorStop(1,'rgba('+m.hue[0]+','+m.hue[1]+','+m.hue[2]+',0)');
+        G.beginPath();G.arc(m.x,m.y,m.r*0.3,0,Math.PI*2);G.fillStyle=mg;G.fill();
+        // tiny label
+        if(elapsed>3){
+          G.font='300 8px "IBM Plex Mono"';G.textAlign='center';
+          G.fillStyle='rgba('+m.hue[0]+','+m.hue[1]+','+m.hue[2]+',0.15)';
+          G.fillText(m.name,m.x,m.y-m.r*0.3-6);
+        }
+      }
+      // user mind indicator
+      var ug=G.createRadialGradient(mx,my,3,mx,my,80*vS);
+      ug.addColorStop(0,'rgba(170,130,140,0.06)');ug.addColorStop(1,'rgba(170,130,140,0)');
+      G.beginPath();G.arc(mx,my,80*vS,0,Math.PI*2);G.fillStyle=ug;G.fill();
+      if(elapsed>3){
+        G.font='300 8px "IBM Plex Mono"';G.textAlign='center';
+        G.fillStyle='rgba(170,130,140,0.2)';
+        G.fillText('you',mx,my-80*vS-6);
+      }
+      G.restore();
+
+      // bottom text
+      if(elapsed>5){
+        textOp=Math.min(0.35,(elapsed-5)*0.006);
+        G.save();G.textAlign='center';G.textBaseline='middle';
+        G.font='300 11px "IBM Plex Mono"';G.fillStyle='rgba(140,140,160,'+textOp+')';
+        G.fillText('reality is what enough minds agree on',W/2,H-50);G.restore();
+      }
+      requestAnimationFrame(conDraw);
+    })();
+  },
+  exit:function(){
+    conRunning=false;
+    modeCtx.clearRect(0,0,innerWidth,innerHeight);
+  }
+};
+
 // ====== ALL MODES COMPLETE ======
 
 // ====== IDLE GLITCH ======
@@ -1528,7 +1748,7 @@ setTimeout(glitchTick,3000);
 
 // ====== BILINGUAL FLICKER SYSTEM (GPU-friendly, no reflow) ======
 const flickerState={lang:'zh'};
-const modeZh={signal:'\u4fe1\u865f',frequency:'\u983b\u7387',compression:'\u58d3\u7e2e',observer:'\u89c0\u5bdf\u8005',noise:'\u96dc\u8a0a',boundary:'\u908a\u754c',habit:'\u7fd2\u6163',dimensions:'\u7dad\u5ea6'};
+const modeZh={signal:'\u4fe1\u865f',frequency:'\u983b\u7387',compression:'\u58d3\u7e2e',observer:'\u89c0\u5bdf\u8005',noise:'\u96dc\u8a0a',boundary:'\u908a\u754c',habit:'\u7fd2\u6163',dimensions:'\u7dad\u5ea6',consensus:'\u5171\u8b58'};
 let flickerPairs=[];
 
 function initBilingual(){
@@ -1555,7 +1775,7 @@ function flickerTo(pair,lang){
 }
 
 function scheduleFlicker(){
-  const baseInterval=4000-corruptLevel*250;
+  const baseInterval=4000-corruptLevel*500;
   const interval=Math.max(baseInterval+Math.random()*4000,800);
   setTimeout(flickerTick,interval);
 }
