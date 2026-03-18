@@ -49,6 +49,22 @@ canvas#field{position:fixed;inset:0;z-index:1}
 canvas#mode-canvas{position:fixed;inset:0;z-index:7;opacity:0;transition:opacity 1.5s ease;pointer-events:none}
 canvas#mode-canvas.on{opacity:1}
 
+/* oscilloscope WebGL canvas — layered above mode-canvas */
+canvas#oscillo-canvas{position:fixed;inset:0;width:100vw;height:100vh;z-index:8;opacity:0;transition:opacity 2s ease;pointer-events:none;mix-blend-mode:screen}
+canvas#oscillo-canvas.on{opacity:1}
+
+/* headphones overlay — shown at page load */
+#hp-overlay{position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.97);color:#555;cursor:pointer;transition:opacity 1.5s}
+#hp-overlay.gone{opacity:0;pointer-events:none}
+#hp-overlay svg{width:48px;height:48px;margin-bottom:1.5rem;opacity:0.4}
+#hp-overlay .hp-label{font-size:0.7rem;letter-spacing:0.4em;text-transform:uppercase;opacity:0.5;font-family:var(--mono)}
+#hp-overlay .hp-tap{font-size:0.55rem;letter-spacing:0.3em;margin-top:2rem;opacity:0.25;font-family:var(--mono)}
+
+/* fullscreen toggle */
+#fs-btn{position:fixed;bottom:1.2rem;right:1.2rem;z-index:99997;background:none;border:1px solid var(--dim);border-radius:3px;padding:6px;cursor:pointer;opacity:0.2;transition:opacity 0.4s;line-height:0}
+#fs-btn:hover{opacity:0.5}
+#fs-btn svg{width:14px;height:14px;stroke:var(--text);fill:none;stroke-width:1.5}
+
 /* mode label - what mode you're in */
 #mode-label{position:fixed;top:2rem;left:50%;transform:translateX(-50%);z-index:8;
   font-size:0.55rem;letter-spacing:0.4em;text-transform:uppercase;color:var(--faint);
@@ -161,6 +177,15 @@ canvas#mode-canvas.on{opacity:1}
 </style>
 </head>
 <body>
+<div id="hp-overlay">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+    <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+  </svg>
+  <div class="hp-label">wear headphones</div>
+  <div class="hp-tap">tap to begin</div>
+</div>
+<button id="fs-btn" title="fullscreen"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
 <div class="grain"></div>
 <div id="cur"><div id="cur-r"></div><div id="cur-d"></div></div>
 <div id="corrupt-scan"></div>
@@ -186,6 +211,7 @@ canvas#mode-canvas.on{opacity:1}
 <div id="void">
 <canvas id="field"></canvas>
 <canvas id="mode-canvas"></canvas>
+<canvas id="oscillo-canvas"></canvas>
 
 <div id="center">
   <div id="glyph" class="bilingual" data-zh="神經錯亂" data-en="PSYCHOSIS">神經錯亂</div>
@@ -438,16 +464,35 @@ const whispers=[
 let activeMode=null;
 let modeCanvas,modeCtx;
 
-// ====== PHASE SEQUENCING ======
-setTimeout(()=>{
-  document.getElementById('phase0').style.transition='opacity 1.5s';
-  document.getElementById('phase0').style.opacity='0';
+// ====== HEADPHONES GATE ======
+// Site starts only after user taps headphones overlay (ensures AudioContext can be created)
+function goFullscreen(){
+  var el=document.documentElement;
+  if(el.requestFullscreen)el.requestFullscreen();
+  else if(el.webkitRequestFullscreen)el.webkitRequestFullscreen();
+}
+document.getElementById('fs-btn').addEventListener('click',function(e){
+  e.stopPropagation();
+  if(document.fullscreenElement||document.webkitFullscreenElement){
+    (document.exitFullscreen||document.webkitExitFullscreen).call(document);
+  }else{goFullscreen()}
+});
+document.getElementById('hp-overlay').addEventListener('click',function hpStart(){
+  document.getElementById('hp-overlay').removeEventListener('click',hpStart);
+  document.getElementById('hp-overlay').classList.add('gone');
+  setTimeout(function(){document.getElementById('hp-overlay').style.display='none'},1500);
+  goFullscreen();
+  // begin phase sequencing
   setTimeout(()=>{
-    document.getElementById('phase0').style.display='none';
-    document.getElementById('phase1').style.opacity='1';
-    boot();
-  },1500);
-},3800);
+    document.getElementById('phase0').style.transition='opacity 1.5s';
+    document.getElementById('phase0').style.opacity='0';
+    setTimeout(()=>{
+      document.getElementById('phase0').style.display='none';
+      document.getElementById('phase1').style.opacity='1';
+      boot();
+    },1500);
+  },3800);
+});
 
 function boot(){
   const lines=document.querySelectorAll('#boot-log .ln');
@@ -1454,11 +1499,174 @@ modes.frequency={
 // Multiple minds perceive the same field differently.
 // Where they agree, reality solidifies. Where they disagree, it flickers.
 // Where no one looks, dissolution.
+// Now with oscilloscope + audio layer.
 let conRunning=false;
+let conAudio=null,conAudioCtx=null,conOscilloRAF=null;
+
+// ---- Oscilloscope WebGL setup (lazy-init) ----
+var oscGL=null,oscDecayProg,oscBeamProg,oscBlitProg;
+var oscDecayLocs,oscBeamLocs,oscBlitLocs;
+var oscQuadBuf,oscBeamBuf,oscBeamData;
+var oscFbTex,oscFb,oscPingPong=0;
+var oscFbW=1024,oscFbH=1024;
+var oscAudioReady=false;
+// Ring buffer for raw PCM capture (written by ScriptProcessorNode at audio rate)
+var OSC_RING_SIZE=8192;
+var oscRingL=new Float32Array(OSC_RING_SIZE),oscRingR=new Float32Array(OSC_RING_SIZE);
+var oscRingHead=0;
+var OSC_DISPLAY_SAMPLES=2048; // how many raw samples to show per frame
+var OSC_OVERSAMPLE=10;        // interpolation factor: 10x = ~20k display points from 2048 samples
+var OSC_POINTS=OSC_DISPLAY_SAMPLES*OSC_OVERSAMPLE;
+var OSC_DECAY=0.80,OSC_INTENSITY=0.18;
+var OSC_COLOR=[0.3,0.85,0.35],OSC_GLOW=0.5;
+
+function oscCompile(src,type){
+  var s=oscGL.createShader(type);oscGL.shaderSource(s,src);oscGL.compileShader(s);return s;
+}
+function oscLink(vs,fs){
+  var p=oscGL.createProgram();
+  oscGL.attachShader(p,oscCompile(vs,oscGL.VERTEX_SHADER));
+  oscGL.attachShader(p,oscCompile(fs,oscGL.FRAGMENT_SHADER));
+  oscGL.linkProgram(p);return p;
+}
+function oscCreateTex(){
+  var t=oscGL.createTexture();oscGL.bindTexture(oscGL.TEXTURE_2D,t);
+  oscGL.texImage2D(oscGL.TEXTURE_2D,0,oscGL.RGBA,oscFbW,oscFbH,0,oscGL.RGBA,oscGL.UNSIGNED_BYTE,null);
+  oscGL.texParameteri(oscGL.TEXTURE_2D,oscGL.TEXTURE_MIN_FILTER,oscGL.LINEAR);
+  oscGL.texParameteri(oscGL.TEXTURE_2D,oscGL.TEXTURE_MAG_FILTER,oscGL.LINEAR);
+  oscGL.texParameteri(oscGL.TEXTURE_2D,oscGL.TEXTURE_WRAP_S,oscGL.CLAMP_TO_EDGE);
+  oscGL.texParameteri(oscGL.TEXTURE_2D,oscGL.TEXTURE_WRAP_T,oscGL.CLAMP_TO_EDGE);
+  return t;
+}
+function oscCreateFB(tex){
+  var f=oscGL.createFramebuffer();oscGL.bindFramebuffer(oscGL.FRAMEBUFFER,f);
+  oscGL.framebufferTexture2D(oscGL.FRAMEBUFFER,oscGL.COLOR_ATTACHMENT0,oscGL.TEXTURE_2D,tex,0);return f;
+}
+
+function initOscilloGL(){
+  var c=document.getElementById('oscillo-canvas');
+  oscGL=c.getContext('webgl',{alpha:true,premultipliedAlpha:false,antialias:false});
+  if(!oscGL)return;
+  var DVS='attribute vec2 a_pos;void main(){gl_Position=vec4(a_pos,0,1);}';
+  var DFS='precision mediump float;uniform sampler2D u_tex;uniform vec2 u_res;uniform float u_decay;void main(){vec2 uv=gl_FragCoord.xy/u_res;vec4 c=texture2D(u_tex,uv);gl_FragColor=c*u_decay;}';
+  var BVS='attribute vec2 a_pos;void main(){gl_PointSize=2.0;gl_Position=vec4(a_pos,0,1);}';
+  var BFS='precision mediump float;uniform vec3 u_color;uniform float u_intensity;void main(){gl_FragColor=vec4(u_color*u_intensity,u_intensity);}';
+  var LVS='attribute vec2 a_pos;varying vec2 v_uv;void main(){v_uv=a_pos*0.5+0.5;gl_Position=vec4(a_pos,0,1);}';
+  var LFS='precision mediump float;varying vec2 v_uv;uniform sampler2D u_tex;uniform float u_glow;void main(){vec4 c=texture2D(u_tex,v_uv);vec2 px=vec2(1.0/1024.0);vec4 b=vec4(0.0);b+=texture2D(u_tex,v_uv+vec2(-px.x*2.0,0));b+=texture2D(u_tex,v_uv+vec2(px.x*2.0,0));b+=texture2D(u_tex,v_uv+vec2(0,-px.y*2.0));b+=texture2D(u_tex,v_uv+vec2(0,px.y*2.0));b+=texture2D(u_tex,v_uv+vec2(-px.x,px.y)*2.0);b+=texture2D(u_tex,v_uv+vec2(px.x,px.y)*2.0);b+=texture2D(u_tex,v_uv+vec2(-px.x,-px.y)*2.0);b+=texture2D(u_tex,v_uv+vec2(px.x,-px.y)*2.0);gl_FragColor=c+b*0.06*u_glow;}';
+  oscDecayProg=oscLink(DVS,DFS);oscBeamProg=oscLink(BVS,BFS);oscBlitProg=oscLink(LVS,LFS);
+  oscDecayLocs={tex:oscGL.getUniformLocation(oscDecayProg,'u_tex'),res:oscGL.getUniformLocation(oscDecayProg,'u_res'),decay:oscGL.getUniformLocation(oscDecayProg,'u_decay')};
+  oscBeamLocs={color:oscGL.getUniformLocation(oscBeamProg,'u_color'),intensity:oscGL.getUniformLocation(oscBeamProg,'u_intensity')};
+  oscBlitLocs={tex:oscGL.getUniformLocation(oscBlitProg,'u_tex'),glow:oscGL.getUniformLocation(oscBlitProg,'u_glow')};
+  oscQuadBuf=oscGL.createBuffer();oscGL.bindBuffer(oscGL.ARRAY_BUFFER,oscQuadBuf);
+  oscGL.bufferData(oscGL.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),oscGL.STATIC_DRAW);
+  oscBeamBuf=oscGL.createBuffer();oscBeamData=new Float32Array(OSC_POINTS*2);
+  oscFbTex=[oscCreateTex(),oscCreateTex()];oscFb=[oscCreateFB(oscFbTex[0]),oscCreateFB(oscFbTex[1])];
+  oscPingPong=0;
+  // size canvas
+  var dpr=Math.min(window.devicePixelRatio||1,2);
+  var oc=document.getElementById('oscillo-canvas');oc.width=innerWidth*dpr;oc.height=innerHeight*dpr;
+}
+
+function oscUseQuad(prog){
+  oscGL.bindBuffer(oscGL.ARRAY_BUFFER,oscQuadBuf);
+  var loc=oscGL.getAttribLocation(prog,'a_pos');oscGL.enableVertexAttribArray(loc);
+  oscGL.vertexAttribPointer(loc,2,oscGL.FLOAT,false,0,0);
+}
+
+// Cubic Hermite interpolation (defined once, not per frame)
+function oscHermite(y0,y1,y2,y3,t){var t2=t*t,t3=t2*t;return 0.5*(2*y1+(y2-y0)*t+(2*y0-5*y1+4*y2-y3)*t2+(3*(y1-y2)+y3-y0)*t3)}
+function oscRingRead(ring,offset){return ring[((oscRingHead-OSC_DISPLAY_SAMPLES+offset)%OSC_RING_SIZE+OSC_RING_SIZE)%OSC_RING_SIZE]}
+
+function oscRender(){
+  if(!conRunning||!oscGL){return}
+  conOscilloRAF=requestAnimationFrame(oscRender);
+  // Read latest samples from ring buffer with cubic Hermite oversampling
+  var gain=0.85,n=OSC_DISPLAY_SAMPLES;
+  for(var i=0;i<OSC_POINTS;i++){
+    var pos=(i/OSC_POINTS)*(n-1);
+    var idx=pos|0,frac=pos-idx;
+    var lx=oscHermite(oscRingRead(oscRingL,idx-1),oscRingRead(oscRingL,idx),oscRingRead(oscRingL,idx+1),oscRingRead(oscRingL,idx+2),frac);
+    var ly=oscHermite(oscRingRead(oscRingR,idx-1),oscRingRead(oscRingR,idx),oscRingRead(oscRingR,idx+1),oscRingRead(oscRingR,idx+2),frac);
+    oscBeamData[i*2]=lx*gain;
+    oscBeamData[i*2+1]=ly*gain;
+  }
+  var src=oscPingPong,dst=1-oscPingPong;
+  oscGL.bindFramebuffer(oscGL.FRAMEBUFFER,oscFb[dst]);oscGL.viewport(0,0,oscFbW,oscFbH);
+  oscGL.useProgram(oscDecayProg);oscGL.activeTexture(oscGL.TEXTURE0);oscGL.bindTexture(oscGL.TEXTURE_2D,oscFbTex[src]);
+  oscGL.uniform1i(oscDecayLocs.tex,0);oscGL.uniform2f(oscDecayLocs.res,oscFbW,oscFbH);oscGL.uniform1f(oscDecayLocs.decay,OSC_DECAY);
+  oscUseQuad(oscDecayProg);oscGL.drawArrays(oscGL.TRIANGLE_STRIP,0,4);
+  oscGL.enable(oscGL.BLEND);oscGL.blendFunc(oscGL.SRC_ALPHA,oscGL.ONE);
+  oscGL.useProgram(oscBeamProg);oscGL.uniform3fv(oscBeamLocs.color,OSC_COLOR);oscGL.uniform1f(oscBeamLocs.intensity,OSC_INTENSITY);
+  oscGL.bindBuffer(oscGL.ARRAY_BUFFER,oscBeamBuf);oscGL.bufferData(oscGL.ARRAY_BUFFER,oscBeamData,oscGL.DYNAMIC_DRAW);
+  var bLoc=oscGL.getAttribLocation(oscBeamProg,'a_pos');oscGL.enableVertexAttribArray(bLoc);oscGL.vertexAttribPointer(bLoc,2,oscGL.FLOAT,false,0,0);
+  oscGL.drawArrays(oscGL.POINTS,0,OSC_POINTS);
+  oscGL.disable(oscGL.BLEND);
+  oscGL.bindFramebuffer(oscGL.FRAMEBUFFER,null);var oc=document.getElementById('oscillo-canvas');
+  oscGL.viewport(0,0,oc.width,oc.height);oscGL.useProgram(oscBlitProg);oscGL.activeTexture(oscGL.TEXTURE0);
+  oscGL.bindTexture(oscGL.TEXTURE_2D,oscFbTex[dst]);oscGL.uniform1i(oscBlitLocs.tex,0);oscGL.uniform1f(oscBlitLocs.glow,OSC_GLOW);
+  oscUseQuad(oscBlitProg);oscGL.drawArrays(oscGL.TRIANGLE_STRIP,0,4);
+  oscPingPong=dst;
+}
+
+var oscProcessor=null;
+function startConsensusAudio(){
+  conAudio=document.createElement('audio');
+  conAudio.crossOrigin='anonymous';
+  conAudio.src='audio.mp3';
+  conAudio.loop=false;
+  conAudioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  var source=conAudioCtx.createMediaElementSource(conAudio);
+  // ScriptProcessorNode captures raw PCM into ring buffer at audio sample rate
+  // bufferSize=256 → callback every ~5.3ms at 48kHz — minimal latency
+  oscProcessor=conAudioCtx.createScriptProcessor(256,2,2);
+  oscProcessor.onaudioprocess=function(e){
+    var inL=e.inputBuffer.getChannelData(0);
+    var inR=e.inputBuffer.getChannelData(1);
+    var outL=e.outputBuffer.getChannelData(0);
+    var outR=e.outputBuffer.getChannelData(1);
+    for(var i=0;i<inL.length;i++){
+      oscRingL[oscRingHead]=inL[i];
+      oscRingR[oscRingHead]=inR[i];
+      oscRingHead=(oscRingHead+1)%OSC_RING_SIZE;
+      outL[i]=inL[i];outR[i]=inR[i]; // pass-through
+    }
+  };
+  source.connect(oscProcessor);
+  oscProcessor.connect(conAudioCtx.destination);
+  oscAudioReady=true;
+  oscRingHead=0;
+  conAudio.play();
+  // when song ends, exit consensus mode
+  conAudio.addEventListener('ended',function(){if(conRunning)exitMode()});
+}
+
+function stopConsensusAudio(){
+  oscAudioReady=false;
+  if(conOscilloRAF){cancelAnimationFrame(conOscilloRAF);conOscilloRAF=null}
+  if(oscProcessor){oscProcessor.onaudioprocess=null;oscProcessor.disconnect();oscProcessor=null}
+  if(conAudio){conAudio.pause();conAudio.src='';conAudio=null}
+  if(conAudioCtx){conAudioCtx.close();conAudioCtx=null}
+  var oc=document.getElementById('oscillo-canvas');oc.classList.remove('on');
+  // clear WebGL framebuffers so no ghost image lingers
+  if(oscGL){
+    oscGL.bindFramebuffer(oscGL.FRAMEBUFFER,null);
+    oscGL.clearColor(0,0,0,0);oscGL.clear(oscGL.COLOR_BUFFER_BIT);
+    if(oscFb&&oscFbTex){
+      for(var i=0;i<2;i++){oscGL.bindFramebuffer(oscGL.FRAMEBUFFER,oscFb[i]);oscGL.clear(oscGL.COLOR_BUFFER_BIT)}
+      oscGL.bindFramebuffer(oscGL.FRAMEBUFFER,null);
+    }
+  }
+}
 
 modes.consensus={
   enter:function(){
     conRunning=true;
+    // init oscilloscope WebGL if needed, start audio + visualization
+    if(!oscGL)initOscilloGL();
+    startConsensusAudio();
+    var oc=document.getElementById('oscillo-canvas');oc.classList.add('on');
+    oscRender();
+
     var W=innerWidth,H=innerHeight;
     var CON_SC=isMobile?4:5;
     var gW=Math.ceil(W/CON_SC),gH=Math.ceil(H/CON_SC);
@@ -1467,17 +1675,11 @@ modes.consensus={
     var conImgD=conBCtx.createImageData(gW,gH),conPix=conImgD.data;
     var elapsed=0,textOp=0;
 
-    // The underlying "field" — what reality actually is (if anything)
     var field=[];
     for(var i=0;i<gW*gH;i++){
-      field.push({
-        base:Math.random(),           // underlying value
-        freq:0.5+Math.random()*2,     // oscillation
-        phase:Math.random()*Math.PI*2  // offset
-      });
+      field.push({base:Math.random(),freq:0.5+Math.random()*2,phase:Math.random()*Math.PI*2});
     }
 
-    // Autonomous minds — each perceives differently
     var minds=[
       {x:W*0.2,y:H*0.3,vx:0.4,vy:0.3,bias:0,hue:[140,60,80],r:220*vS,name:'alpha'},
       {x:W*0.8,y:H*0.6,vx:-0.3,vy:0.4,bias:0.33,hue:[60,80,150],r:200*vS,name:'beta'},
@@ -1486,19 +1688,16 @@ modes.consensus={
     ];
 
     function moveMind(m,t){
-      // gentle wandering with avoidance of edges
       m.vx+=((Math.sin(t*0.7+m.bias*10)*0.15)-m.vx*0.01);
       m.vy+=((Math.cos(t*0.5+m.bias*7)*0.15)-m.vy*0.01);
       var spd=Math.sqrt(m.vx*m.vx+m.vy*m.vy);
       if(spd>1.2){m.vx*=1.2/spd;m.vy*=1.2/spd}
       m.x+=m.vx;m.y+=m.vy;
-      // soft bounce
       if(m.x<W*0.05){m.vx+=0.1}if(m.x>W*0.95){m.vx-=0.1}
       if(m.y<H*0.05){m.vy+=0.1}if(m.y>H*0.95){m.vy-=0.1}
     }
 
     function mindSees(m,fv,t){
-      // each mind interprets the base field value differently
       return (fv+m.bias+Math.sin(t*0.3+m.bias*5)*0.15)%1;
     }
 
@@ -1508,34 +1707,29 @@ modes.consensus={
       W=innerWidth;H=innerHeight;
       elapsed+=1/60;
 
-      // move autonomous minds
       for(var mi=0;mi<minds.length;mi++)moveMind(minds[mi],t);
 
-      // render field
       for(var y=0;y<gH;y++){for(var x=0;x<gW;x++){
         var wx=x*CON_SC,wy=y*CON_SC;
         var fi=y*gW+x;
         var fv=field[fi].base+Math.sin(t*field[fi].freq+field[fi].phase)*0.08;
 
-        // calculate each mind's influence at this pixel
         var totalInfluence=0;
         var agreement=0;
         var rSum=0,gSum=0,bSum=0;
         var perceptions=[];
         var activeMinds=0;
 
-        // user's mind
         var ud=Math.hypot(wx-mx,wy-my);
         var uInf=Math.max(0,1-ud/(240*vS));
         if(uInf>0.05){
-          uInf=uInf*uInf; // falloff curve
+          uInf=uInf*uInf;
           var userPerc=(fv+0.15+Math.sin(t*0.2)*0.05)%1;
           perceptions.push({v:userPerc,inf:uInf,r:170,g:130,b:140});
           totalInfluence+=uInf;
           activeMinds++;
         }
 
-        // AI minds
         for(var mi=0;mi<minds.length;mi++){
           var m=minds[mi];
           var md=Math.hypot(wx-m.x,wy-m.y);
@@ -1552,19 +1746,15 @@ modes.consensus={
         var r,g,b,op;
 
         if(activeMinds===0){
-          // void — no one perceiving. raw dissolution.
           var noise=Math.random()*12;
           r=noise;g=noise+2;b=noise+4;op=0.6;
         }else if(activeMinds===1){
-          // single perception — faint, uncertain, alone
           var p=perceptions[0];
           var v=p.v;
           r=p.r*0.15*v;g=p.g*0.15*v;b=p.b*0.15*v;
           op=0.3+p.inf*0.15;
-          // slight shimmer of doubt
           if(Math.random()<0.03){r+=20;g+=20;b+=20}
         }else{
-          // multiple minds — check agreement
           var meanV=0;
           for(var pi=0;pi<perceptions.length;pi++)meanV+=perceptions[pi].v*perceptions[pi].inf;
           meanV/=totalInfluence;
@@ -1574,16 +1764,14 @@ modes.consensus={
             variance+=diff*diff*perceptions[pi].inf;
           }
           variance/=totalInfluence;
-          agreement=Math.max(0,1-variance*12); // 0=total disagreement, 1=consensus
+          agreement=Math.max(0,1-variance*12);
 
-          // blend colors weighted by influence
           for(var pi=0;pi<perceptions.length;pi++){
             var p=perceptions[pi],w=p.inf/totalInfluence;
             rSum+=p.r*w;gSum+=p.g*w;bSum+=p.b*w;
           }
 
           if(agreement>0.5){
-            // CONSENSUS — reality solidifies. Bright, coherent.
             var solidify=((agreement-0.5)*2);
             var v=meanV;
             r=rSum*0.2*(0.5+v*0.8)+solidify*60;
@@ -1591,7 +1779,6 @@ modes.consensus={
             b=bSum*0.25*(0.5+v*0.8)+solidify*70;
             op=0.4+solidify*0.45+totalInfluence*0.1;
           }else{
-            // DISAGREEMENT — competing interpretations flicker
             var flicker=Math.random()<0.15;
             var pick=flicker?perceptions[~~(Math.random()*perceptions.length)]:perceptions[0];
             var v=pick.v;
@@ -1599,7 +1786,6 @@ modes.consensus={
             g=pick.g*0.12*v+gSum*0.05;
             b=pick.b*0.12*v+bSum*0.05;
             op=0.2+totalInfluence*0.15;
-            // disagreement static
             if(Math.random()<(1-agreement)*0.08){r+=30;g+=25;b+=35}
           }
         }
@@ -1616,7 +1802,6 @@ modes.consensus={
       G.imageSmoothingEnabled=false;
       G.drawImage(conBuf,0,0,W,H);
 
-      // draw mind indicators — faint circles showing where each perception field is
       G.save();
       for(var mi=0;mi<minds.length;mi++){
         var m=minds[mi];
@@ -1624,14 +1809,12 @@ modes.consensus={
         mg.addColorStop(0,'rgba('+m.hue[0]+','+m.hue[1]+','+m.hue[2]+',0.04)');
         mg.addColorStop(1,'rgba('+m.hue[0]+','+m.hue[1]+','+m.hue[2]+',0)');
         G.beginPath();G.arc(m.x,m.y,m.r*0.3,0,Math.PI*2);G.fillStyle=mg;G.fill();
-        // tiny label
         if(elapsed>3){
           G.font='300 8px "IBM Plex Mono"';G.textAlign='center';
           G.fillStyle='rgba('+m.hue[0]+','+m.hue[1]+','+m.hue[2]+',0.15)';
           G.fillText(m.name,m.x,m.y-m.r*0.3-6);
         }
       }
-      // user mind indicator
       var ug=G.createRadialGradient(mx,my,3,mx,my,80*vS);
       ug.addColorStop(0,'rgba(170,130,140,0.06)');ug.addColorStop(1,'rgba(170,130,140,0)');
       G.beginPath();G.arc(mx,my,80*vS,0,Math.PI*2);G.fillStyle=ug;G.fill();
@@ -1642,7 +1825,6 @@ modes.consensus={
       }
       G.restore();
 
-      // bottom text
       if(elapsed>5){
         textOp=Math.min(0.35,(elapsed-5)*0.006);
         G.save();G.textAlign='center';G.textBaseline='middle';
@@ -1655,6 +1837,7 @@ modes.consensus={
   exit:function(){
     conRunning=false;
     modeCtx.clearRect(0,0,innerWidth,innerHeight);
+    stopConsensusAudio();
   }
 };
 
